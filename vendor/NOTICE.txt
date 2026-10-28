@@ -1,0 +1,22 @@
+ORIGIN Atelier — sources
+
+Three.js: https://github.com/mrdoob/three.js — MIT.
+GSAP: https://gsap.com — license included.
+Lenis: https://github.com/darkroomengineering/lenis — MIT.
+three-mesh-bvh: https://github.com/gkjohnson/three-mesh-bvh — MIT.
+Diamond shader adapted from pmndrs/drei MeshRefractionMaterial by N8Programs — MIT, license included.
+
+Downloaded design references (kept in workspace work/references):
+https://github.com/codrops/RotatingOnScrollAnimations — MIT
+https://github.com/codrops/ScrollTextMotion — MIT
+Patterns studied: scroll-linked transformation, reduced motion, timeline-driven typography. The jewelry models, narrative, scene direction and page layout are original project work.
+
+Editorial image generated with built-in ImageGen.
+
+Photogrammetry and PBR assets: Powered by Poly Haven — CC0.
+https://polyhaven.com/a/rock_07
+https://polyhaven.com/a/rock_09
+https://polyhaven.com/a/studio_small_03
+https://polyhaven.com/a/concrete_layers_02
+https://polyhaven.com/a/rusty_metal_03
+Assets downloaded for local use; no live API dependency in the website.
