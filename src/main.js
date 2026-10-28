@@ -20,7 +20,8 @@ let viewer,viewerPromise,customizer,customizerPromise,studio,hologram,holoPromis
 let design={finish:'mirror',stone:'classic'};
 try{design={...design,...JSON.parse(localStorage.getItem('origin-design')||'{}')}}catch{}
 const interactions=setupInteractions({reduced});
-const lenis=new Lenis({duration:1.05,smoothWheel:!reduced,anchors:false});lenis.on('scroll',ScrollTrigger.update);
+const lenis=new Lenis({duration:1.05,smoothWheel:!reduced,anchors:false});lenis.on('scroll',()=>{ScrollTrigger.update();updateHeader();});
+function updateHeader(){header.classList.toggle('scrolled',window.scrollY>72);}
 // Give the master's chapter 30% more scroll distance while preserving the other stages' pace.
 const storyWeight=1.045;
 function storyProgress(progress){const weighted=progress*storyWeight;return weighted<.27?weighted:weighted<.465?.27+(weighted-.27)/1.3:weighted-.045;}
@@ -42,7 +43,7 @@ function updateChapters(){
  });
  if(index!==lastIndex){chapters.forEach((el,i)=>{el.classList.toggle('is-active',index===i);el.inert=index!==i;el.setAttribute('aria-hidden',String(index!==i));});interactions.chapterChanged();dots.forEach((d,i)=>{d.classList.toggle('active',index===i);d.setAttribute('aria-pressed',String(index===i))});currentLabel.textContent=String(index).padStart(2,'0');lastIndex=index;if(staticStory||!filmReady)setPoster(index);}
  progress.style.transform=`scaleY(${state.p})`;spec.style.opacity=1-gsap.utils.clamp(0,1,(state.p-.17)/.1);wordmark.style.opacity=.045*(1-gsap.utils.clamp(0,1,state.p/.2));
- desiredFrame=Math.round(state.p*431);seekFilm();header.classList.toggle('scrolled',window.scrollY>innerHeight*.7);updateFinalGlint();
+ desiredFrame=Math.round(state.p*431);seekFilm();updateFinalGlint();
 }
 function updateFinalGlint(){
  const q=Math.min(state.p,film.currentTime*24/431);
@@ -111,5 +112,5 @@ gsap.ticker.lagSmoothing(0);gsap.ticker.add(time=>frame(time*1000));
 let lastWidth=innerWidth;
 addEventListener('resize',()=>{viewer?.resize();customizer?.resize();studio?.resize();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{const widthChanged=lastWidth!==innerWidth;lastWidth=innerWidth;if(widthChanged||!mobileMedia.matches){lenis.resize();ScrollTrigger.refresh();}if(widthChanged)loadFilm();},180);});
 mobileMedia.addEventListener('change',()=>{loadFilm();if(staticStory)setPoster(Math.max(0,lastIndex));});
-updateChapters();loadFilm();
+updateChapters();updateHeader();loadFilm();
 Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,1200))]).then(()=>{lenis.resize();ScrollTrigger.refresh();if(location.hash&&!navigationUsed){const target=$(location.hash);if(target)lenis.scrollTo(target,{offset:-(parseFloat(getComputedStyle(target).scrollMarginTop)||0),immediate:true,force:true});}loader.classList.add('loaded');if(!reduced)gsap.fromTo('.site-header',{y:-12,opacity:0},{y:0,opacity:1,duration:.8,ease:'power2.out'});});
