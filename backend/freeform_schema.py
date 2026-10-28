@@ -91,10 +91,19 @@ def validate_part(stage,v,previous=None):
             if end-start<20:raise FreeformError('Дуга ободка должна идти вперёд минимум на 20°.')
             full|=end-start>=350
             clean_rims.append({'from':start,'to':end,'height':number(rim.get('height'),.015,.10,'rim.height'),'radius':number(rim.get('radius'),.15,.5,'rim.radius')})
+        angles=sorted(c['angle'] for c in out)
+        if len(angles)>1 and min([b-a for a,b in zip(angles,angles[1:])]+[angles[0]+360-angles[-1]])<2:raise FreeformError('Позиции крапанов не должны совпадать.')
         if not full:
-            if len(out)<3:raise FreeformError('Камень удерживают минимум три распределённых крапана либо полный ободок.')
-            angles=sorted(c['angle'] for c in out);gaps=[b-a for a,b in zip(angles,angles[1:])]+[angles[0]+360-angles[-1]]
-            if max(gaps)>175 or min(gaps)<2:raise FreeformError('Крапаны должны охватывать камень с разных сторон; позиции не должны совпадать.')
+            # Opposing partial rims hold a stone without adding invented claws.
+            merged=[]
+            for rim in sorted(clean_rims,key=lambda r:r['from']):
+                if merged and rim['from']<=merged[-1][1]:merged[-1][1]=max(merged[-1][1],rim['to'])
+                else:merged.append([rim['from'],rim['to']])
+            coverage=sum(b-a for a,b in merged)
+            contacts=angles+[a+(b-a)*i/math.ceil((b-a)/10) for a,b in merged for i in range(math.ceil((b-a)/10)+1)]
+            contacts=sorted(set(a%360 for a in contacts))
+            gap=max([b-a for a,b in zip(contacts,contacts[1:])]+[contacts[0]+360-contacts[-1]]) if contacts else 360
+            if not ((len(out)>=3 and gap<=175) or (coverage>=60 and gap<=150)):raise FreeformError('Закрепка должна охватывать камень: минимум три крапана или противоположные дуги ободка с суммарным охватом от 60° и просветами не больше 150°.')
         return {'claws':out,'rims':clean_rims}
     raise FreeformError('Неизвестный этап свободной генерации.')
 

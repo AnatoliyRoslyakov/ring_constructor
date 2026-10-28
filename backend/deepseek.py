@@ -6,9 +6,11 @@ from .ring_schema import ROOT, SCHEMA, validate_design, RecipeError
 from .ring_prompts import VISION_PROMPT, INTENT_PROMPT, REVIEW_PROMPT
 STONES={row[0]:{'stoneId':row[0],'gem':row[2],'shape':row[3],'gemSize':row[4]} for row in json.loads((ROOT/'src/constructor/stones.json').read_text())}
 _LOCK=threading.Lock();_BUSY=threading.BoundedSemaphore(2);_TIMES=[]
-_REFERENCES={};_INFLIGHT={}
+_REFERENCES={};_INFLIGHT={};_STAGES={};_STAGE_INFLIGHT={}
 class AIError(Exception):
-    def __init__(self,message,status=502): super().__init__(message);self.status=status
+    def __init__(self,message,status=502,retryable=None):
+        super().__init__(message);self.status=status
+        self.retryable=status in (429,502,503,504) if retryable is None else retryable
 
 def settings():
     values={}
@@ -35,8 +37,33 @@ def _photo(value):
     return value
 
 def generate(body):
+    # A disconnected browser can resume the same stage without paying for it twice.
+    if not isinstance(body,dict):raise AIError('Некорректный запрос эскиза.',400)
+    digest=hashlib.sha256(json.dumps(body,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    with _LOCK:
+        now=time.monotonic()
+        for stale in [k for k,(expires,_) in _STAGES.items() if expires<now]:_STAGES.pop(stale,None)
+        if digest in _STAGES:return copy.deepcopy(_STAGES[digest][1])
+        event=_STAGE_INFLIGHT.get(digest);owner=event is None
+        if owner:event=threading.Event();_STAGE_INFLIGHT[digest]=event
+    if not owner:
+        if not event.wait(185):raise AIError('Этап ещё создаётся. Проверяем готовность автоматически.',504)
+        with _LOCK:
+            cached=_STAGES.get(digest)
+            if cached:return copy.deepcopy(cached[1])
+        raise AIError('Соединение прервалось. Повторяем незавершённый этап.',502)
+    try:
+        result=_generate(body)
+        with _LOCK:
+            _STAGES[digest]=(time.monotonic()+1800,copy.deepcopy(result))
+            while len(_STAGES)>24:_STAGES.pop(next(iter(_STAGES)))
+        return result
+    finally:
+        with _LOCK:_STAGE_INFLIGHT.pop(digest,None);event.set()
+
+def _generate(body):
     key,model=settings()
-    if not key: raise AIError('Добавьте DEEPSEEK_API_KEY в локальный .env и повторите запрос.',503)
+    if not key: raise AIError('Добавьте DEEPSEEK_API_KEY в локальный .env и повторите запрос.',503,retryable=False)
     if not isinstance(body,dict) or body.get('consent') is not True: raise AIError('Подтвердите отправку описания и фото в DeepSeek.',400)
     prompt=body.get('prompt','')
     if not isinstance(prompt,str) or len(prompt)>4000:raise AIError('Описание: до 4000 символов.',400)
@@ -73,7 +100,7 @@ def generate(body):
     try:
         with _LOCK:
             now=time.monotonic();_TIMES[:]=[t for t in _TIMES if now-t<3600]
-            if len(_TIMES)>=30: raise AIError('Лимит AI-запросов на этот час исчерпан. Повторите позже.',429)
+            if len(_TIMES)>=120: raise AIError('Лимит AI-запросов на этот час исчерпан. Повторите позже.',429,retryable=False)
             _TIMES.append(now)
         started=time.monotonic();usage={'totalTokens':0,'calls':0};deadline=started+180
         reference=None
@@ -132,12 +159,12 @@ def _reference_analysis(key,photo,usage,deadline,refresh=False):
         no_center=reference['features'].get('centerStone',{})
         if no_center.get('value') is False and no_center.get('confidence',0)>=.65:
             reference['headBox']=None
-        else:
+        elif any(reference['features'].get(k,{}).get('confidence',0)<.82 for k in ('setting','halo','width','pave',*(['prongs'] if reference['features'].get('setting',{}).get('value') not in ('bezel','halfbezel','tension') else []),*(['paveRows'] if reference['features'].get('pave',{}).get('value')!='none' else []))) or reference['features'].get('prongStyle',{}).get('value')=='double':
             closeup=_head_crop(photo,reference.get('headBox'))
-            review=_extract(key,'deepseek-flash',REVIEW_PROMPT,[{'type':'text','text':'Image1: whole ring, check band width and parallel pave rows. Image2: head crop, check halo and actual claw tips. Tip coordinates refer to image2.'},{'type':'image_url','image_url':{'url':photo,'detail':'original'}},{'type':'image_url','image_url':{'url':closeup,'detail':'original'}}],usage,deadline,vision=True,reason_first=True)
+            review=_extract(key,'deepseek-flash',REVIEW_PROMPT,[{'type':'text','text':'Image1: whole ring, check band width and parallel pave rows. Image2: head crop, check halo and actual claw tips. Tip coordinates refer to image2.'},{'type':'image_url','image_url':{'url':photo,'detail':'original'}},{'type':'image_url','image_url':{'url':closeup,'detail':'original'}}],usage,deadline,vision=True)
             reference=merge_observations(reference,review)
         with _LOCK:
-            _REFERENCES[digest]=(time.monotonic()+600,copy.deepcopy(reference))
+            _REFERENCES[digest]=(time.monotonic()+3600,copy.deepcopy(reference))
             while len(_REFERENCES)>8:_REFERENCES.pop(next(iter(_REFERENCES)))
         return reference
     finally:
@@ -160,8 +187,8 @@ def _chat(key,model,messages,usage,deadline,vision=False,reason=False,max_tokens
         if not isinstance(answer,dict):raise RecipeError('Ответ должен быть JSON-объектом.')
         return answer
     except urllib.error.HTTPError as e:
-        if e.code==401:raise AIError('DeepSeek отклонил API-ключ. Проверьте локальный .env.',502)
-        if e.code==402:raise AIError('На аккаунте DeepSeek недостаточно средств.',502)
+        if e.code==401:raise AIError('DeepSeek отклонил API-ключ. Проверьте локальный .env.',502,retryable=False)
+        if e.code==402:raise AIError('На аккаунте DeepSeek недостаточно средств.',502,retryable=False)
         if e.code==429:raise AIError('DeepSeek временно ограничил запросы. Попробуйте позже.',429)
         raise AIError('DeepSeek не смог обработать запрос. Повторите позже.',502)
     except (socket.timeout,TimeoutError):raise AIError('DeepSeek не ответил вовремя. Ваш текущий эскиз сохранён.',504)

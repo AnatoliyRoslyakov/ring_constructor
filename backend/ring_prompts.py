@@ -27,7 +27,7 @@ gemRatio is intrinsic length / width, not a screen-space bounding box ratio; rou
 gemSize is short-axis girdle WIDTH in mm (not diameter of halo). If absolute scale is unknown, gemSize may start at6.5; band WIDTH must still follow visible proportions rather than default2.2. Wide and double-row shoulders must not collapse into a thin solitaire.
 Estimate sizes from the finger hole/central stone, not screen pixels. Unknown dimensions are assumptions.
 orientation=north when the long stone axis follows the finger axis; east=across the finger.
-headLift=additional clearance above a safe standard seat (0..3mm), not height above finger.
+headLift=ADDITIONAL clearance above the compact safe seat (0..3mm), NOT total head height above finger or band. Use 0 for ordinary low/medium settings; infer a positive lift only when an extra elevated pedestal is visibly present. Do not assign 2..3 merely because the gemstone has a deep pavilion.
 prongs=4/6/8; count actual structural claw positions, not facet lines or halo beads. Do not invent hidden claws.
 Four paired double claws = prongs:4, prongStyle:double, NOT eight evenly spaced claws.
 Side halfmoon stones have a straight inner edge and curved outer edge; trapezoid has four straight edges.

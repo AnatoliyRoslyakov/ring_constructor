@@ -210,7 +210,7 @@
   "setting": "prongs",
   "prongs": 6,
   "prongStyle": "round",
-  "headLift": 0.5,
+  "headLift": 0,
   "metal": "white",
   "purity": "750",
   "finish": "mirror",

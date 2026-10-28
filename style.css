@@ -280,3 +280,19 @@ dialog#design-dialog.ring-builder{width:min(1460px,96vw);height:min(920px,94dvh)
 @media(prefers-reduced-motion:reduce){#design-dialog .builder-method-card,#design-dialog .builder-options button{transition:none}}
 
 @media (min-width:701px) and (max-width:1000px){#design-dialog[data-method=choose] .builder-panel-heading h2{font-size:34px}#design-dialog .builder-welcome>p{font-size:12px;margin-bottom:20px}#design-dialog .builder-method-card{padding:18px 14px;grid-template-columns:45px 1fr 16px;gap:12px}#design-dialog .builder-method-card strong{font-size:21px}#design-dialog .builder-method-card small{font-size:11px}#design-dialog .builder-method-card em{margin-top:10px;font-size:9px}#design-dialog .builder-method-art svg{width:43px}}
+
+/* Ring Studio: live stage progress, isolated from the landing page. */
+#design-dialog .builder-ai-jewel{position:relative;display:grid;place-items:center;width:60px;height:60px;flex-shrink:0;font-size:42px}
+#design-dialog .builder-ai-jewel.is-building{animation:none}
+#design-dialog .builder-ai-jewel.is-building::after{content:"";position:absolute;inset:0;border:2px solid #d8c5a224;border-top-color:#e7d2aa;border-right-color:#e7d2aa;border-radius:50%;animation:builder-progress-spin 1.2s linear infinite}
+#design-dialog .builder-ai-meter{padding:0 0 22px}
+#design-dialog .builder-ai-meter-label{display:flex;justify-content:space-between;font-size:12px;color:#e7d9be;margin-bottom:12px;font-variant-numeric:tabular-nums}
+#design-dialog .builder-ai-track{height:4px;background:#d8c5a21c;position:relative;overflow:hidden;border-radius:4px}
+#design-dialog .builder-ai-track>span{display:block;height:100%;background:#d8c5a2;transition:width .5s ease}
+#design-dialog .builder-ai-meter.is-building .builder-ai-track::after{content:"";position:absolute;inset:0 auto 0 0;width:35%;background:linear-gradient(90deg,transparent,#f4e4be,transparent);animation:builder-progress-scan 2.2s ease-in-out infinite}
+#design-dialog .builder-ai-meter p{font-size:12px;line-height:1.7;color:#bbc9d6;margin:12px 0 0;min-height:3.4em}
+#design-dialog .builder-preview-badge.is-building{display:flex;align-items:center;gap:9px}
+#design-dialog .builder-preview-badge.is-building::before{content:"";width:12px;height:12px;border:1.5px solid #d8c5a244;border-top-color:#ead6ae;border-radius:50%;animation:builder-progress-spin 1.2s linear infinite}
+@keyframes builder-progress-spin{to{transform:rotate(360deg)}}
+@keyframes builder-progress-scan{from{transform:translateX(-100%)}to{transform:translateX(390%)}}
+@media(prefers-reduced-motion:reduce){#design-dialog .builder-ai-jewel.is-building::after,#design-dialog .builder-ai-meter.is-building .builder-ai-track::after,#design-dialog .builder-preview-badge.is-building::before{animation:none}#design-dialog .builder-ai-track>span{transition:none}}

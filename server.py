@@ -114,7 +114,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not 0<size<=3000000 or self.headers.get('Content-Type','').split(';')[0]!='application/json': raise AIError('Некорректный запрос эскиза.',400)
             body=json.loads(self.rfile.read(size))
             self.send_json(200,generate(body))
-        except AIError as error:self.send_json(error.status,{'error':str(error)})
+        except AIError as error:self.send_json(error.status,{'error':str(error),'retryable':error.retryable})
         except (ValueError,TypeError):self.send_json(400,{'error':'Не удалось прочитать параметры эскиза.'})
         except (BrokenPipeError,ConnectionResetError):pass
     def list_directory(self,path):

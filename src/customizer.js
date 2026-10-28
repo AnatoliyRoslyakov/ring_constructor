@@ -21,10 +21,10 @@ export function setupCustomizer(dialog,{reduced=false}={}){
  const stores={manual:createDesignStore(readDraft('manual',initial.freeform?defaults:initial)),ai:createDesignStore(readDraft('ai',initial.freeform?initial:defaults))};
  let method=initial.freeform?'ai':'manual',store=stores[method],design=store.get(),step=0,mode='choose',studio,active=false,delivery=false,dirty=true,submitKey=null,busy=false,savedA=null,comparing=false;
  const isFinal=()=>mode==='summary'||mode==='edit'&&step===4;
- let aiConfig={configured:false,model:'deepseek-flash'},aiBusy=false,aiResult=null,aiPreview=false,aiPrompt='',aiConsent=false,photo='',photoName='',aiError='',libraryReturn='',catalogQuery='',catalogFilter='all',aiFeedback='',aiPart='shank',aiView=freeComplete(design)?'result':'reference',aiStage='prepare',aiCompleted=[],aiPreferences={},aiStoneId='',aiResultTab='customize',aiWorking=null,aiRun=null,aiController=null;
+ let aiConfig={configured:false,model:'deepseek-flash'},aiBusy=false,aiResult=null,aiPreview=false,aiPrompt='',aiConsent=false,photo='',photoName='',aiError='',libraryReturn='',catalogQuery='',catalogFilter='all',aiFeedback='',aiPart='shank',aiView=freeComplete(design)?'result':'reference',aiStage='prepare',aiCompleted=[],aiPreferences={},aiStoneId='',aiResultTab='customize',aiWorking=null,aiRun=null,aiController=null,aiRetry=0,progressClock=null;
  const panel=dialog.querySelector('.builder-panel'),canvas=dialog.querySelector('#builder-canvas'),status=dialog.querySelector('.builder-status'),stage=dialog.querySelector('.builder-stage'),emailState={email:'',name:'',comment:'',consent:false};
  const generationSource=()=>JSON.stringify({aiPrompt,photo,aiPreferences,aiStoneId,design:{...design,scene:undefined}});
- const shownDesign=()=>aiBusy&&aiWorking?aiWorking:aiPreview&&aiResult?aiResult.design:comparing&&savedA?savedA:design;
+ const shownDesign=()=>mode==='ai'&&aiView==='progress'&&aiWorking?aiWorking:aiPreview&&aiResult?aiResult.design:comparing&&savedA?savedA:design;
  function options(key,values=Object.keys(choices[key])){
   const cards=items=>`<div class="builder-options ${['shape','sideShape'].includes(key)?'builder-shapes':''}">${items.map(value=>`<button type="button" data-choice="${key}" data-value="${value}" aria-pressed="${!((['shank','profile'].includes(key)&&design.freeform?.shank)||(['setting','prongStyle'].includes(key)&&design.freeform?.setting))&&design[key]===value}">${icon(key,value)}<span>${escape(choices[key][value])}</span>${(key==='shank'?notes[value]:optionNotes[key]?.[value])?`<small>${escape(key==='shank'?notes[value]:optionNotes[key][value])}</small>`:''}</button>`).join('')}</div>`;
   const html=values.length<=6?cards(values):cards(values.slice(0,6))+`<details class="builder-more" ${values.indexOf(design[key])>=6?'open':''}><summary>Ещё ${values.length-6} ${values.length-6===2?'варианта':'вариантов'}</summary>${cards(values.slice(6))}</details>`;
@@ -42,7 +42,7 @@ export function setupCustomizer(dialog,{reduced=false}={}){
   if(step===3)return group('Металл',options('metal'))+(design.metal==='platinum'?'<p class="builder-help">Платина 950</p>':group('Проба',`<div class="builder-counts">${['585','750'].map(n=>`<button type="button" data-choice="purity" data-value="${n}" aria-pressed="${design.purity===n}">${n}</button>`).join('')}</div>`))+group('Поверхность',options('finish'))+group('Дорожка камней на шинке',options('pave'))+(design.pave!=='none'?group('Ряды на шинке',options('paveRows'))+range('paveCoverage','Длина дорожки',.25,.85,.05,'%',100):'')+group('Декор',options('detail'))+`<label class="builder-text-label">Гравировка внутри шинки<input type="text" name="engraving" maxlength="24" value="${escape(design.engraving)}" placeholder="Инициалы, дата, несколько слов" autocomplete="off"><small><span data-engraving-count>${design.engraving.length}</span> / 24 знака · видна в 3D</small></label>${design.accents.length?`<div class="builder-fit"><span>Авторские линии</span><p>В этом эскизе ${design.accents.length} дополнительных элементов, созданных по вашей идее.</p><button type="button" data-clear-accents>Убрать авторские линии</button></div>`:''}`;
   return `<div class="builder-summary">${specification(design).map(([k,v])=>`<div><span>${escape(k)}</span><strong>${escape(v)}</strong></div>`).join('')}</div>${designWarnings(design).map(text=>`<p class="builder-design-note">${escape(text)}</p>`).join('')}<div class="builder-export"><button type="button" data-export="png">Изображение PNG ↓</button><button type="button" data-export="glb">Модель GLB ↓</button><button type="button" data-export="json">Проект ORIGIN ↓</button><label>Открыть проект<input type="file" data-import accept="application/json,.json" hidden></label></div><div class="builder-request"><h3>Расчёт вашего кольца.</h3><p>Оставьте почту и пожелания. Конструкцию, доступность камня и стоимость подтверждает мастер.</p><label class="builder-text-label">Электронная почта<input name="email" type="email" autocomplete="email" required maxlength="254" value="${escape(emailState.email)}" placeholder="name@example.com"></label><label class="builder-text-label">Ваше имя <small>необязательно</small><input name="customerName" autocomplete="name" maxlength="80" value="${escape(emailState.name)}"></label><label class="builder-text-label">Пожелания<textarea name="comment" maxlength="2000" rows="3">${escape(emailState.comment)}</textarea></label><label class="builder-check"><input name="consent" type="checkbox" required ${emailState.consent?'checked':''}>Разрешаю использовать мою почту и данные эскиза для ответа.</label><label class="builder-honeypot" aria-hidden="true">Оставьте пустым<input name="company" tabindex="-1" autocomplete="off"></label><p class="builder-delivery-note" ${delivery?'hidden':''}>Локальный режим: заявка сохранится на этом компьютере. Отправка писем ещё не подключена.</p></div>`;
  }
- function aiPanel(){return renderFreeformPanel({design,selected:stoneCatalog.find(s=>s.id===aiStoneId),photo,photoName,aiPrompt,aiConsent,aiBusy,aiConfig,aiError,aiResult,aiFeedback,aiPart,aiView,aiStage,aiCompleted,aiPreferences,aiResultTab,aiPlan:aiRun?.plan||generationStages(design),recognitionHTML:recognitionPanel()});}
+ function aiPanel(){return renderFreeformPanel({design,selected:stoneCatalog.find(s=>s.id===aiStoneId),photo,photoName,aiPrompt,aiConsent,aiBusy,aiConfig,aiError,aiResult,aiFeedback,aiPart,aiView,aiStage,aiCompleted,aiPreferences,aiResultTab,aiPlan:aiRun?.plan||generationStages(design),aiRetry,recognitionHTML:recognitionPanel()});}
  function recognitionPanel(){
   const r=aiResult?.recognition;if(!r)return '';
   const labels={centerStone:'Центральный камень',ornament:'Орнамент',shank:'Шинка',shape:'Огранка',setting:'Закрепка',prongs:'Крапаны',halo:'Ореол',pave:'Дорожка',sideStones:'Боковые камни',width:'Ширина шинки',paveRows:'Ряды паве',orientation:'Положение'};
@@ -74,13 +74,13 @@ export function setupCustomizer(dialog,{reduced=false}={}){
   next.disabled=busy||(mode==='ai'&&!aiBusy&&aiView!=='result'&&!aiConfig.configured);
   dialog.querySelector('[data-builder-reset]').disabled=aiBusy;dialog.querySelector('[data-builder-reset]').hidden=mode==='choose';
   dialog.querySelector('.builder-light-picker').hidden=mode==='choose';
-  updateMeasurements();
+  updateMeasurements();updateAIClock();
  }
  function updateMeasurements(){const d=shownDesign(),m=dimensions(d);dialog.querySelector('.builder-model-meta').textContent=`${choices.metal[d.metal]} ${d.purity} / ${d.centerStone?choices.gem[d.gem]+' / '+m.width.toFixed(1)+' × '+m.length.toFixed(1)+' мм':'Без центрального камня / '+d.width.toFixed(1)+' мм'}`;
   stage.dataset.scene=d.scene;dialog.querySelector('[data-light-name]').textContent=choices.scene[d.scene];dialog.querySelectorAll('.builder-light-picker [data-scene]').forEach(b=>(b.setAttribute('aria-pressed',String(b.dataset.scene===d.scene)),b.disabled=aiBusy));const dimensionsEl=panel.querySelector('[data-gem-dimensions]');if(dimensionsEl)dimensionsEl.textContent=`${m.width.toFixed(1)} × ${m.length.toFixed(1)} мм`;
   const fit=panel.querySelector('[data-fit-details]');if(fit)fit.textContent=d.freeform?.setting?`${d.freeform.setting.claws.length} кончиков · посадка по контуру камня`:['bezel','halfbezel','tension'].includes(d.setting)?'Посадка следует контуру камня.':`${d.prongs} крапанов · диаметр ${m.prong.toFixed(2)} мм · размер связан с камнем`;
   dialog.querySelector('[data-history=undo]').disabled=aiBusy||!store.canUndo;dialog.querySelector('[data-history=redo]').disabled=aiBusy||!store.canRedo;
-  const badge=dialog.querySelector('.builder-preview-badge');badge.hidden=!aiBusy&&!aiPreview&&!comparing&&!(mode==='ai'&&design.freeform);badge.textContent=aiBusy?aiPhaseNames[aiStage]:mode==='ai'&&design.freeform&&!comparing?(aiView==='reference'?'Предыдущий эскиз':'AI-форма'):aiPreview?`${aiResult?.design?.freeform?'AI-форма':'AI'} · ещё не применён`:comparing?'Вариант A · сохранённый':'';
+  const badge=dialog.querySelector('.builder-preview-badge');badge.hidden=!aiBusy&&!aiPreview&&!comparing&&!(mode==='ai'&&design.freeform);badge.classList.toggle('is-building',aiBusy);badge.textContent=aiBusy?aiPhaseNames[aiStage]:mode==='ai'&&design.freeform&&!comparing?(aiView==='reference'?'Предыдущий эскиз':'AI-форма'):aiPreview?`${aiResult?.design?.freeform?'AI-форма':'AI'} · ещё не применён`:comparing?'Вариант A · сохранённый':'';
   dialog.querySelector('[data-compare-toggle]').hidden=!savedA;dialog.querySelector('[data-compare-toggle]').textContent=comparing?'Вернуться к B':'Сравнить с A';
  }
  function persist(){try{localStorage.setItem('origin-ring-design-v2',JSON.stringify(design));localStorage.setItem('origin-ring-'+method+'-draft',JSON.stringify(design));status.textContent='Проект сохранён в этом браузере';}catch{status.textContent='Не удалось сохранить в браузере. Скачайте проект.';}}
@@ -105,7 +105,7 @@ export function setupCustomizer(dialog,{reduced=false}={}){
   const stepButton=el.closest('[data-builder-step]');if(stepButton){setStep(Number(stepButton.dataset.builderStep));return;}
   if(el.closest('[data-builder-next]')&&mode==='ai'){
    event.preventDefault();
-   if(aiBusy){aiController?.abort();return;}
+   if(aiBusy){aiRun.cancelled=true;aiController?.abort();return;}
    if(aiView==='result'){setMode('summary');return;}
    await generate({resume:aiView==='progress'&&!!aiRun});return;
   }
@@ -161,6 +161,32 @@ export function setupCustomizer(dialog,{reduced=false}={}){
   status.textContent='Изменения сохранены. Кольцо обновлено в 3D.';
  }
  function aiValidation(message,selector){aiError=message;status.textContent=message;renderPanel();panel.querySelector(selector)?.focus();panel.querySelector('.builder-ai-error')?.scrollIntoView({block:'nearest'});}
+ function updateAIClock(){
+  const clock=panel.querySelector('[data-ai-elapsed]');if(!clock||!aiRun)return;
+  const seconds=Math.floor(((aiRun.elapsed||0)+(aiBusy?Date.now()-aiRun.started:0))/1000);
+  clock.textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+  const note=panel.querySelector('[data-ai-wait-note]');
+  if(note&&aiBusy&&!aiRetry)note.textContent=Date.now()-aiRun.stageStarted>45000?'Детальная форма требует больше времени. Этап выполняется — ничего нажимать не нужно.':'Все этапы выполнятся автоматически. Можно вращать кольцо, пока оно создаётся.';
+ }
+ async function requestAIStage(run,part){
+  const payload=JSON.stringify({stage:part,prompt:run.prompt,photo:run.photo,design:run.candidate.design,consent:true,feedback:run.feedback,preferences:run.preferences,stone:run.stoneId?{id:run.stoneId}:null});
+  for(let attempt=0;attempt<3;attempt++){
+   if(run.cancelled)throw Error('Создание остановлено. Можно продолжить с этого этапа.');
+   aiRetry=attempt;aiController=new AbortController();const controller=aiController;let timedOut=false,timer;
+   if(attempt){status.textContent='Восстанавливаем создание. Готовые этапы сохранены.';renderPanel();}
+   try{
+    if(attempt)await new Promise((resolve,reject)=>{const finish=()=>{controller.signal.removeEventListener('abort',abort);resolve();},wait=setTimeout(finish,attempt*1500),abort=()=>{clearTimeout(wait);reject(new DOMException('Остановлено','AbortError'));};controller.signal.addEventListener('abort',abort,{once:true});});
+    timer=setTimeout(()=>{timedOut=true;controller.abort();},205000);
+    const response=await fetch('/api/ring-ai',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:payload});
+    let result;try{result=await response.json();}catch{throw Object.assign(Error('Сервер временно не ответил. Пробуем снова.'),{retryable:response.status>=500});}
+    if(!response.ok)throw Object.assign(Error(result.error||'Не удалось завершить создание.'),{retryable:result.retryable===true});
+    return result;
+   }catch(error){
+    if(run.cancelled)throw Error('Создание остановлено. Можно продолжить с этого этапа.');
+    if(!(timedOut||error.retryable||error instanceof TypeError)||attempt===2)throw Error(timedOut?'DeepSeek не ответил вовремя. Готовые этапы сохранены — можно продолжить.':error.message);
+   }finally{clearTimeout(timer);if(aiController===controller)aiController=null;}
+  }
+ }
  async function generate({correct=false,resume=false}={}){
   if(aiBusy)return;
   if(!resume){
@@ -174,23 +200,20 @@ export function setupCustomizer(dialog,{reduced=false}={}){
   }
   const run=aiRun;if(!run)return;
   if(run.source!==generationSource()){aiRun=null;aiError='Референс или параметры изменились. Запустите создание заново.';aiView='reference';renderPanel();return;}
-  aiBusy=true;aiError='';comparing=false;aiPreview=false;aiView='progress';
+  run.cancelled=false;run.started=Date.now();aiBusy=true;aiError='';comparing=false;aiPreview=false;aiView='progress';progressClock=setInterval(updateAIClock,1000);
   try{
    for(;run.index<run.plan.length;run.index++){
-    const part=run.plan[run.index];aiStage=part;aiWorking=run.index>run.start?run.candidate.design:null;dirty=true;status.textContent=aiPhaseNames[part];renderPanel();
-    aiController=new AbortController();let timedOut=false;const timer=setTimeout(()=>{timedOut=true;aiController?.abort();},195000);
-    try{
-     const response=await fetch('/api/ring-ai',{method:'POST',headers:{'Content-Type':'application/json'},signal:aiController.signal,body:JSON.stringify({stage:part,prompt:run.prompt,photo:run.photo,design:run.candidate.design,consent:true,feedback:run.feedback,preferences:run.preferences,stone:run.stoneId?{id:run.stoneId}:null})});
-     const result=await response.json();if(!response.ok)throw Error(result.error||'Не удалось завершить создание.');
+    if(run.cancelled)throw Error('Создание остановлено. Можно продолжить с этого этапа.');
+    const part=run.plan[run.index];aiStage=part;aiRetry=0;run.stageStarted=Date.now();aiWorking=run.index>run.start?run.candidate.design:null;dirty=true;status.textContent=aiPhaseNames[part];renderPanel();
+     const result=await requestAIStage(run,part);
      const normalized=normalizeDesign(result.design);if(part!=='prepare'&&!normalized.freeform?.[part])throw Error('Не удалось собрать детали кольца.');
      run.candidate={...result,design:normalized,recognition:result.recognition||run.candidate.recognition};aiCompleted.push(part);if(part==='prepare')run.plan=generationStages(normalized);
-    }catch(error){if(error.name==='AbortError')throw Error(timedOut?'Создание заняло больше времени. Нажмите «Продолжить создание».':'Создание остановлено. Можно продолжить с этого этапа.');throw error;}
-    finally{clearTimeout(timer);aiController=null;}
+     aiWorking=normalized;dirty=true;
    }
    if(!freeComplete(run.candidate.design))throw Error('В кольце остались незавершённые детали. Продолжите создание.');
    aiResult=run.candidate;design=normalizeDesign({...aiResult.design,scene:design.scene});changed();aiResult.design=design;aiRun=null;aiWorking=null;aiFeedback='';aiView='result';aiResultTab='customize';status.textContent='Кольцо готово. Настройте детали или сохраните эскиз.';
-  }catch(error){aiError=error.message;aiWorking=null;dirty=true;status.textContent='Готовые части сохранены. Можно продолжить создание.';}
-  finally{aiBusy=false;aiController=null;renderPanel();}
+  }catch(error){aiError=error.message;aiWorking=run.index>run.start?run.candidate.design:null;dirty=true;status.textContent=error.message;}
+  finally{run.elapsed=(run.elapsed||0)+Date.now()-run.started;clearInterval(progressClock);progressClock=null;aiBusy=false;aiRetry=0;aiController=null;renderPanel();}
  }
  async function exportProject(format){if(!studio)return;try{if(dirty){studio.setDesign(shownDesign());dirty=false;}
   if(format==='png'){const encoded=studio.snapshot().split(',')[1],bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));downloadBlob(bytes,'ORIGIN-ring-design.png','image/png');}

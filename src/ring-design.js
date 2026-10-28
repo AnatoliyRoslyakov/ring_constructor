@@ -32,8 +32,19 @@ export function normalizeDesign(value={}){
  result.freeform=normalizeFreeform(value.freeform);
  return result;
 }
+export function headGirdle(d){
+ // Pavilion depth is intrinsic to the cut; lift only adds optional clearance.
+ let top=d.ringSize*.5+d.thickness;
+ for(const band of d.freeform?.shank?.bands||[]){
+  if(!band.closed&&!(band.stations[0][0]<=90&&band.stations.at(-1)[0]>=90))continue;
+  const rows=band.stations,i=rows.findIndex(p=>p[0]>=90),a=rows[Math.max(0,i-1)],b=rows[i<0?rows.length-1:i],t=b[0]===a[0]?0:(90-a[0])/(b[0]-a[0]),at=k=>a[k]+(b[k]-a[k])*t;
+  const depth=at(4)*d.thickness/d.freeform.basis.thickness,width=at(3)*d.width/d.freeform.basis.width,roll=at(5)*Math.PI/180,radial=band.profile.map(([u,v])=>u*depth*.5*Math.cos(roll)-v*width*.5*Math.sin(roll));
+  top=Math.max(top,d.ringSize*.5+Math.max(...radial)-Math.min(...radial)+Math.max(0,at(1))*d.thickness/d.freeform.basis.thickness);
+ }
+ return top+d.gemSize*.44+.12+d.headLift;
+}
 export function dimensions(d){
- const ratio=d.gemRatio??shapeRatios[d.shape];return {width:d.gemSize,length:d.gemSize*ratio,spanX:d.gemSize*(d.orientation==='east'?ratio:1),spanZ:d.gemSize*(d.orientation==='east'?1:ratio),prong:Math.max(.44,Math.min(.92,.30+d.gemSize*.035)),height:d.ringSize/2+d.thickness+(d.centerStone?d.gemSize*.69+.45+d.headLift:0)};
+ const ratio=d.gemRatio??shapeRatios[d.shape];return {width:d.gemSize,length:d.gemSize*ratio,spanX:d.gemSize*(d.orientation==='east'?ratio:1),spanZ:d.gemSize*(d.orientation==='east'?1:ratio),prong:Math.max(.44,Math.min(.92,.30+d.gemSize*.035)),height:d.centerStone?headGirdle(d)+d.gemSize*.25:d.ringSize*.5+d.thickness};
 }
 export function designWarnings(d){const warnings=[];
  if(d.freeform&&!freeComplete(d))warnings.push('AI-форма ещё не завершена. Продолжите создание кольца.');

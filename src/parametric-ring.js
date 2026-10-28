@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createDiamondEnvironment } from './diamond.js';
 import { refractionMaterial } from './diamond-material.js';
-import { normalizeDesign, dimensions } from './ring-design.js';
+import { normalizeDesign, dimensions, headGirdle } from './ring-design.js';
 import { gems,shapeRatios,sceneCatalog } from './constructor/catalog.js';
-import { buildFreeMetal,freeBandFrame } from './freeform-geometry.js';
+import { buildFreeMetal,freeBandFrame,radialScale,fittedRimGeometry } from './freeform-geometry.js';
 
 const V=(x,y,z)=>new THREE.Vector3(x,y,z),TAU=Math.PI*2;
 const signedPow=(v,p)=>Math.sign(v)*Math.pow(Math.abs(v),p);
@@ -91,13 +91,14 @@ function contourTube(points,y,r,material,parent,scale=1){return pipe(points.map(
 function offsetContour(points,distance){
  return points.map((p,i)=>{const previous=points[(i+points.length-1)%points.length],next=points[(i+1)%points.length],a=p.clone().sub(previous).normalize(),b=next.clone().sub(p).normalize(),n=new THREE.Vector2(a.y+b.y,-a.x-b.x).normalize();return p.clone().addScaledVector(n,distance/Math.max(.6,n.dot(new THREE.Vector2(a.y,-a.x))));});
 }
-function bezelGeometry(points,y,wall){
- const p=[],tri=(a,b,c)=>p.push(...a,...b,...c);for(let i=0;i<points.length;i++){
-  const a=points[i],b=points[(i+1)%points.length],ext=v=>v.clone().multiplyScalar(1+wall/v.length());
-  const ae=ext(a),be=ext(b),lo=y-.65,hi=y+.12;
-  const A=[a.x,lo,a.y],B=[b.x,lo,b.y],C=[a.x,hi,a.y],D=[b.x,hi,b.y],E=[ae.x,lo,ae.y],F=[be.x,lo,be.y],G=[ae.x,hi,ae.y],H=[be.x,hi,be.y];
-  tri(E,G,F);tri(F,G,H);tri(A,B,C);tri(B,D,C);tri(C,D,G);tri(D,H,G);tri(A,E,B);tri(B,E,F);
- }return triangleGeometry(p);
+function shoulderBridge(points,width,depth,endWidth,material,parent){
+ const curve=new THREE.CatmullRomCurve3(points,false,'centripetal'),positions=[],indices=[],N=48,M=16;
+ for(let i=0;i<=N;i++){
+  const t=i/N,at=curve.getPointAt(t),tangent=curve.getTangentAt(t),axis=V(0,0,1).addScaledVector(tangent,-tangent.z).normalize(),normal=tangent.clone().cross(axis).normalize(),ease=t*t*(3-2*t),w=THREE.MathUtils.lerp(width,endWidth,ease),h=THREE.MathUtils.lerp(depth,.24,ease);
+  for(let j=0;j<=M;j++){const a=j/M*TAU,p=at.clone().addScaledVector(axis,Math.sin(a)*w*.5).addScaledVector(normal,Math.cos(a)*h);positions.push(...p);}
+ }
+ for(let i=0;i<N;i++)for(let j=0;j<M;j++){const a=i*(M+1)+j,b=a+M+1;indices.push(a,a+1,b,b,a+1,b+1);}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setIndex(indices);g.computeVertexNormals();parent.add(new THREE.Mesh(g,material));
 }
 function createFinishTextures(){
  const textures={};
@@ -134,38 +135,48 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
  function setDesign(value){
   const normalized=normalizeDesign(value);
   if(design&&JSON.stringify({...design,scene:''})===JSON.stringify({...normalized,scene:''})){design=normalized;setScene(design.scene);return dimensions(design);}
-  const hadOrnament=!!design?.freeform?.ornament;design=normalized;const d=design,dim=dimensions(d),outer=d.ringSize/2+d.thickness,girdle=outer+d.gemSize*.44+.45+d.headLift;
+  const hadOrnament=!!design?.freeform?.ornament;design=normalized;const d=design,dim=dimensions(d),outer=d.ringSize/2+d.thickness,girdle=headGirdle(d);
   metal.color.set({white:0xe1e4e8,yellow:0xe3b85c,rose:0xd9a293,platinum:0xcbd3dc}[d.metal]);metal.roughness={mirror:.11,satin:.43,brushed:.36,hammered:.25}[d.finish];metal.clearcoat=d.finish==='mirror'?.8:.15;metal.bumpMap=d.finish==='mirror'?null:surfaceTextures[d.finish];metal.bumpScale=d.finish==='hammered'?.075:d.finish==='brushed'?.012:.006;
   disposeGroup();group=new THREE.Group();scene.add(group);
   const branches=['split','twist','rope','double','organic'].includes(d.shank)?[-1,1]:[0];
   const points=outline(d.shape).map(p=>{p.y*=d.gemRatio/shapeRatios[d.shape];p.multiplyScalar(d.gemSize);return d.orientation==='east'?new THREE.Vector2(-p.y,p.x):p;});
   if(d.centerStone){const stone=addGem(group,d.shape,d.gem,d.gemSize,V(0,girdle,0),null,true,d.gemRatio);stone.name='Central stone';if(d.orientation==='east')stone.rotation.y=Math.PI/2;}
-  if(d.freeform){buildFreeMetal(d,dim,group,metal,{outline,surfaceAt});}else{
+  if(d.freeform){buildFreeMetal(d,dim,group,metal,{outline,surfaceAt,offsetContour});}else{
 for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),metal));
-  if(d.centerStone){const baseY=outer+.3;
-  contourTube(points,baseY,.22,metal,group,.34);contourTube(points,girdle-.85,.19,metal,group,.83);
-  for(const side of [-1,1]){
-   const contact=surfaceAt(points,side>0?0:Math.PI);
-   pipe([V(side*d.ringSize*.36,d.ringSize*.35,0),V(side*d.ringSize*.23,outer-.1,0),V(contact.x*.34,baseY,contact.y*.34)],Math.max(.25,d.width*.13),metal,group);
-  }
-  if(d.setting==='bezel'||d.setting==='halfbezel'){
-   const geometry=bezelGeometry(points,girdle,.38+dim.prong*.15);
-   if(d.setting==='halfbezel'){
-    const p=geometry.attributes.position,kept=[];for(let i=0;i<p.count;i+=3){const x=(p.getX(i)+p.getX(i+1)+p.getX(i+2))/3,z=(p.getZ(i)+p.getZ(i+1)+p.getZ(i+2))/3;if(Math.abs(x)>Math.abs(z)*.65)for(let j=0;j<3;j++)kept.push(p.getX(i+j),p.getY(i+j),p.getZ(i+j));}geometry.dispose();group.add(new THREE.Mesh(triangleGeometry(kept),metal));
-   }else group.add(new THREE.Mesh(geometry,metal));
-  }else if(d.setting==='tension'){
-   for(const side of [-1,1])pipe([V(side*d.ringSize*.40,outer-.6,0),V(side*dim.spanX*.63,girdle-.3,0),V(side*dim.spanX*.48,girdle+.1,0)],Math.max(.42,d.width*.23),metal,group);
-  }
-  else for(let i=0;i<d.prongs;i++){
-   const offset=d.setting==='compass'?0:(d.shape==='pear'||d.shape==='marquise')?Math.PI/2:Math.PI/4,rectangular=['princess','emerald','asscher','radiant','cushion'].includes(d.shape),corner=Math.atan2(dim.spanZ,dim.spanX),corners=[corner,Math.PI-corner,Math.PI+corner,TAU-corner],angles=rectangular&&d.setting!=='compass'?(d.prongs===4?corners:d.prongs===6?[...corners,0,Math.PI]:[...corners,0,Math.PI/2,Math.PI,Math.PI*1.5]):null,angle=angles?angles[i]:i/d.prongs*TAU+offset,edge=surfaceAt(points,angle),crown=d.gemSize*.23;
-   const flare=d.setting==='tulip'?1.16:d.setting==='crown'?1.10:1.035;
-   const path=[V(edge.x*(d.setting==='tulip'?.18:.34),baseY,edge.y*(d.setting==='tulip'?.18:.34)),V(edge.x*(d.setting==='basket'?.95:.83),girdle-.85,edge.y*(d.setting==='basket'?.95:.83)),V(edge.x*flare,girdle+crown*.12,edge.y*flare),V(edge.x*.88,girdle+crown*.30,edge.y*.88)];
-   const radius=dim.prong/2;
-   if(d.prongStyle==='double'){const tangent=V(-Math.sin(angle),0,Math.cos(angle));for(const sign of [-1,1]){const twin=path.map(p=>p.clone().addScaledVector(tangent,sign*radius*.8));pipe(twin,radius*.62,metal,group,.65);const tip=new THREE.Mesh(new THREE.SphereGeometry(radius*.48,10,10),metal);tip.position.copy(twin.at(-1));group.add(tip);}}
-   else pipe(path,radius,metal,group,d.prongStyle==='claw'?.32:1);
-   if(d.prongStyle==='v'){const tangent=V(-Math.sin(angle)*.25,0,Math.cos(angle)*.25),tip=path.at(-1);for(const sign of [-1,1])pipe([path[2],tip.clone().addScaledVector(tangent,sign)],radius*.7,metal,group,.65);}
-   if(d.prongStyle!=='double'){const tip=new THREE.Mesh(new THREE.SphereGeometry(radius*(d.prongStyle==='claw'?.35:d.prongStyle==='v'?.5:.93),12,12),metal);tip.position.copy(path.at(-1));group.add(tip);}
-  }
+  if(d.centerStone){
+   const seatDepth=d.setting==='basket'?.22:.18,seatY=girdle-seatDepth*d.gemSize,seatRadius=Math.max(.18,dim.prong*.38);
+   const contact=(angle,h,clearance=0)=>{const edge=surfaceAt(points,angle),normal=edge.clone().normalize();edge.multiplyScalar(radialScale(d.shape,h)).addScaledVector(normal,clearance);return V(edge.x,girdle+h*d.gemSize,edge.y);};
+   const seatAt=angle=>contact(angle,-seatDepth,seatRadius*.75);
+   pipe(Array.from({length:64},(_,i)=>seatAt(i/64*TAU)),seatRadius,metal,group,1,true);
+   // Every shoulder starts inside the actual band section and terminates on the gallery.
+   for(const side of [-1,1])for(const branch of branches){
+    const baseAngle=d.shank==='cathedral'?Math.PI*.24:Math.acos(Math.min(.76,(dim.spanX*.58+1)/outer)),a=side>0?baseAngle:Math.PI-baseAngle,section=bandSection(d,a,branch),r=d.ringSize*.5+d.thickness*.5+section.radialOffset,anchor=V(Math.cos(a)*r,Math.sin(a)*r,section.offset),azimuth=(side>0?0:Math.PI)+(section.offset?Math.sign(section.offset)*side*.52:0),end=seatAt(azimuth),tangent=V(-side*Math.sin(baseAngle),Math.cos(baseAngle),0);
+    const approach=anchor.clone().lerp(end,.67);approach.y=Math.min(end.y-.18,approach.y+(d.shank==='cathedral'?.65:.2));
+    shoulderBridge([anchor,anchor.clone().addScaledVector(tangent,.85),approach,end],Math.max(.7,section.width*.94),d.thickness*.44,Math.max(.5,seatRadius*2.4),metal,group);
+   }
+   if(['bezel','halfbezel','tension'].includes(d.setting)){
+    const arcs=d.setting==='bezel'?[[0,360]]:d.setting==='halfbezel'?[[-52,52],[128,232]]:[[-24,24],[156,204]],wall=d.setting==='tension'?Math.max(.45,d.width*.22):.3+dim.prong*.16;
+    for(const [from,to] of arcs)group.add(new THREE.Mesh(fittedRimGeometry(points,surfaceAt,d.shape,girdle,d.gemSize,{from,to,depth:seatDepth,wall,height:.035}),metal));
+    if(d.setting==='tension')for(const side of [-1,1]){
+     const a=side>0?0:Math.PI,root=seatAt(a),end=contact(a,.01,wall*.6);
+     shoulderBridge([root,contact(a,-seatDepth*.55,wall*.55),end],Math.max(.7,d.width*.65),.3,Math.max(.65,d.width*.5),metal,group);
+    }
+   }else for(let i=0;i<d.prongs;i++){
+    const offset=d.setting==='compass'?0:(d.shape==='pear'||d.shape==='marquise')?Math.PI/2:Math.PI/4,rectangular=['princess','emerald','asscher','radiant','cushion'].includes(d.shape),corner=Math.atan2(dim.spanZ,dim.spanX),corners=[corner,Math.PI-corner,Math.PI+corner,TAU-corner],angles=rectangular&&d.setting!=='compass'?(d.prongs===4?corners:d.prongs===6?[...corners,0,Math.PI]:[...corners,0,Math.PI/2,Math.PI,Math.PI*1.5]):null,angle=angles?angles[i]:i/d.prongs*TAU+offset,radius=dim.prong*.5;
+    const addClaw=(a,r)=>{
+     const tipRadius=r*(d.prongStyle==='claw'?.42:.72),path=[seatAt(a),contact(a,-.08,r*.85+(d.setting==='tulip'?.13:0)),contact(a,.018,r*.92),contact(a,.07,tipRadius*.66)];
+     pipe(path,r,metal,group,d.prongStyle==='claw'?.42:.72);
+     const tip=new THREE.Mesh(new THREE.SphereGeometry(tipRadius,14,12),metal);tip.position.copy(path.at(-1));group.add(tip);
+     if(d.prongStyle==='v'){const spread=.12;for(const sign of [-1,1])pipe([path[2],contact(a+sign*spread,.07,r*.45)],r*.45,metal,group,.6);}
+    };
+    if(d.prongStyle==='double')for(const sign of [-1,1])addClaw(angle+sign*radius*.78/(surfaceAt(points,angle).length()),radius*.63);else addClaw(angle,radius);
+   }
+   if(['basket','crown'].includes(d.setting))pipe(Array.from({length:64},(_,i)=>contact(i/64*TAU,-.035,.17)),.17,metal,group,1,true);
+   if(d.halo!=='none')for(const angle of [0,Math.PI*.5,Math.PI,Math.PI*1.5]){
+    const edge=surfaceAt(points,angle),hidden=d.halo==='hidden',out=edge.clone().normalize(),distance=d.haloSize*(hidden?.62:d.halo==='double'?1.79:.67);if(hidden)edge.multiplyScalar(radialScale(d.shape,-.20));
+    const end=V(edge.x+out.x*distance,(hidden?girdle-d.gemSize*.20:girdle+.08)-d.haloSize*.34,edge.y+out.y*distance);
+    pipe([seatAt(angle),contact(angle,hidden?-.20:-.03,.24),end],.18,metal,group);
+   }
   }}
   if(d.shank==='pave'||d.pave!=='none'){
    const bands=d.freeform?.shank?.bands||branches,rows=Number(d.paveRows),beadGeometry=new THREE.SphereGeometry(.09,8,6),arc=d.pave==='full'?TAU:TAU*d.paveCoverage;
@@ -191,13 +202,11 @@ for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),met
    }
    if(beadPositions.length){const beads=new THREE.InstancedMesh(beadGeometry,metal,beadPositions.length),pose=new THREE.Object3D();beadPositions.forEach((p,i)=>{pose.position.copy(p);pose.updateMatrix();beads.setMatrixAt(i,pose.matrix);});group.add(beads);}else beadGeometry.dispose();
   }
-  if(d.centerStone&&!d.freeform&&d.shank==='cathedral')for(const sign of [-1,1])pipe([V(sign*outer*.90,outer*.40,0),V(sign*outer*.70,outer*.92,0),V(sign*dim.spanX*.40,girdle-.45,0)],Math.max(.3,d.width*.19),metal,group);
-  if(d.centerStone&&!d.freeform&&d.setting==='crown')contourTube(points,girdle-.22,.20,metal,group,1.01);
   if(d.centerStone&&d.halo!=='none'&&(!d.freeform||d.freeform.setting)){
    const hidden=d.halo==='hidden',rows=d.halo==='double'?2:1;
    for(let row=0;row<rows;row++){
-    const y=hidden?girdle-.65:girdle+.08;
-    const rowPoints=offsetContour(points,hidden?-d.haloSize*.30:d.haloSize*(.67+row*1.12)),curve=new THREE.CatmullRomCurve3(rowPoints.map(p=>V(p.x,y,p.y)),true,'centripetal');
+    const y=hidden?girdle-d.gemSize*.20:girdle+.08;
+    const rowPoints=offsetContour(hidden?points.map(p=>p.clone().multiplyScalar(radialScale(d.shape,-.20))):points,d.haloSize*(hidden?.62:.67+row*1.12)),curve=new THREE.CatmullRomCurve3(rowPoints.map(p=>V(p.x,y,p.y)),true,'centripetal');
     contourTube(rowPoints,y-d.haloSize*.34,.19,metal,group);
     const count=Math.min(72,Math.max(12,Math.floor(curve.getLength()/(d.haloSize*1.08)))),beadGeometry=new THREE.SphereGeometry(.10,8,6);
     for(let i=0;i<count;i++){
@@ -211,12 +220,13 @@ for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),met
    for(const sign of [-1,1])for(let i=0;i<count;i++){
     const size=d.gemSize*d.sideSize*(1-i*.18),clearance=['single','double'].includes(d.halo)?d.haloSize*(d.halo==='double'?2.9:1.6):0,x=sign*(dim.spanX*.5+clearance+size*.56+i*size*1.08),y=girdle-(d.gemSize-size)*.3-i*.35,head=new THREE.Group();head.position.set(x,y,0);head.rotation.z=-sign*.18;group.add(head);
     addGem(head,d.sideShape,'diamond',size,V(0,0,0));if(['halfmoon','trapezoid'].includes(d.sideShape))head.scale.x=sign;
-    const sidePoints=outline(d.sideShape).map(p=>p.multiplyScalar(size));contourTube(sidePoints,-size*.32,.13,metal,head,.65);
+    const sidePoints=outline(d.sideShape).map(p=>p.multiplyScalar(size)),seatScale=radialScale(d.sideShape,-.18);contourTube(sidePoints,-size*.18,.13,metal,head,seatScale);
     for(let claw=0;claw<4;claw++){
-     const edge=surfaceAt(sidePoints,Math.PI/4+claw/4*TAU);pipe([V(edge.x*.35,-size*.44,edge.y*.35),V(edge.x*1.04,0,edge.y*1.04),V(edge.x*.90,size*.10,edge.y*.90)],Math.max(.12,size*.06),metal,head,.7);
+     const edge=surfaceAt(sidePoints,Math.PI/4+claw/4*TAU);pipe([V(edge.x*seatScale,-size*.18,edge.y*seatScale),V(edge.x*1.04,0,edge.y*1.04),V(edge.x*.92,size*.07,edge.y*.92)],Math.max(.12,size*.06),metal,head,.7);
     }
     const anchorX=sign*Math.min(outer*.82,Math.abs(x)*.78),anchorY=Math.sqrt(Math.max(0,outer*outer-anchorX*anchorX));
-    pipe([V(anchorX,anchorY,0),V(x*.94,y-size*.62,0),V(x,y-size*.37,0)],Math.max(.20,size*.08),metal,group);
+    head.updateMatrix();
+    for(const z of [-1,1]){const edge=surfaceAt(sidePoints,(sign>0?Math.PI:0)+z*.55).multiplyScalar(seatScale),end=V(edge.x,-size*.18,edge.y).applyMatrix4(head.matrix),anchor=V(anchorX,anchorY,z*Math.min(d.width*.3,size*.22));pipe([anchor,anchor.clone().lerp(end,.55).add(V(0,.25,0)),end],Math.max(.18,size*.07),metal,group);}
    }
   }
   if(!d.freeform&&(d.detail==='milgrain'||d.detail==='rails')){
@@ -228,8 +238,8 @@ for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),met
    }
   }
   if(d.centerStone&&!d.freeform&&d.detail==='gallery')for(let i=0;i<6;i++){
-   const a=i/6*TAU,b=(i+1)/6*TAU,p=surfaceAt(points,a).multiplyScalar(.77),q=surfaceAt(points,b).multiplyScalar(.77);
-   pipe([V(p.x,girdle-.75,p.y),V((p.x+q.x)*.42,girdle-1.45,(p.y+q.y)*.42),V(q.x,girdle-.75,q.y)],.15,metal,group);
+   const depth=d.setting==='basket'?.22:.18,a=i/6*TAU,b=(i+1)/6*TAU,scale=radialScale(d.shape,-depth),p=surfaceAt(points,a).multiplyScalar(scale),q=surfaceAt(points,b).multiplyScalar(scale),y=girdle-depth*d.gemSize;
+   pipe([V(p.x,y,p.y),V((p.x+q.x)*.42,y-.32,(p.y+q.y)*.42),V(q.x,y,q.y)],.13,metal,group);
   }
   for(const accent of d.freeform?[]:d.accents){
    const basis=accent.basis||[d.ringSize,d.gemSize,d.headLift,d.thickness],ringRatio=d.ringSize/basis[0],gemRatio=d.gemSize/basis[1],oldOuter=basis[0]/2+basis[3],oldGirdle=oldOuter+basis[1]*.44+.45+basis[2];

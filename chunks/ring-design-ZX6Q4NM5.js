@@ -1,0 +1,1 @@
+import{i as a,j as b,k as c,l as d,m as e,n as f,o as g,p as h,q as i}from"./chunk-YX472OKT.js";export{a as choices,b as defaults,h as designWarnings,g as dimensions,f as headGirdle,d as normalizeAccents,e as normalizeDesign,c as ranges,i as specification};
