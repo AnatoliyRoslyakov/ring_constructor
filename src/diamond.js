@@ -1,11 +1,29 @@
 import * as THREE from 'three';
 
 export function diamondGeometry(){
-  const levels=[{r:0,y:-.64,n:16,o:0},{r:.4,y:-.26,n:16,o:Math.PI/16},{r:.64,y:-.025,n:16,o:0},{r:.64,y:.025,n:16,o:0},{r:.4,y:.31,n:16,o:Math.PI/16}];
-  const positions=[];const push=(a,b,c)=>positions.push(...a,...b,...c);
-  const point=(l,i)=>[Math.cos(i/16*Math.PI*2+l.o)*l.r,l.y,Math.sin(i/16*Math.PI*2+l.o)*l.r];
-  for(let l=0;l<levels.length-1;l++)for(let i=0;i<16;i++){const a=point(levels[l],i),b=point(levels[l],i+1),c=point(levels[l+1],i),d=point(levels[l+1],i+1);push(a,c,b);push(b,c,d)}
-  for(let i=0;i<16;i++)push([0,.31,0],point(levels[4],i+1),point(levels[4],i));
+  // Round brilliant: one table, 32 crown facets and 24 pavilion facets.
+  // Each kite is planar, so triangulation never creates an extra optical facet.
+  const positions=[],point=(r,y,a)=>new THREE.Vector3(Math.cos(a)*r,y,Math.sin(a)*r);
+  function face(...vertices){
+    const normal=vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0]));
+    const center=vertices.reduce((sum,v)=>sum.add(v),new THREE.Vector3()).divideScalar(vertices.length);center.y+=.10;
+    if(normal.dot(center)<0)vertices.reverse();
+    for(let i=1;i<vertices.length-1;i++)positions.push(...vertices[0].toArray(),...vertices[i].toArray(),...vertices[i+1].toArray());
+  }
+  const table=[],stars=[],upper=[],lower=[],halves=[];
+  const starY=.22+(.014-.22)*(.48*Math.cos(Math.PI/8)-.36)/(.64-.36);
+  const lowerY=-.53+(.53-.014)*.43*Math.cos(Math.PI/8)/.64;
+  for(let i=0;i<8;i++){const a=i*Math.PI/4;table.push(point(.36,.22,a));stars.push(point(.48,starY,a+Math.PI/8));halves.push(point(.43,lowerY,a+Math.PI/8));}
+  for(let i=0;i<16;i++){upper.push(point(.64,.014,i*Math.PI/8));lower.push(point(.64,-.014,i*Math.PI/8));}
+  face(...table);
+  for(let i=0;i<8;i++){
+    const j=(i+1)%8,k=(i+7)%8,a=i*2,b=(a+1)%16,c=(a+2)%16;
+    face(table[i],table[j],stars[i]);face(table[i],stars[i],upper[a],stars[k]);
+    face(stars[i],upper[b],upper[a]);face(stars[i],upper[c],upper[b]);
+    face(point(0,-.53,0),halves[k],lower[a],halves[i]);
+    face(halves[i],lower[a],lower[b]);face(halves[i],lower[b],lower[c]);
+  }
+  for(let i=0;i<16;i++)face(upper[i],lower[i],lower[(i+1)%16],upper[(i+1)%16]);
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.computeVertexNormals();return g;
 }
 

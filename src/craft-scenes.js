@@ -134,17 +134,19 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
    object.updateMorphTargets();transferMeshes.push(object);
   }
   const shank=sourceRing.band.geometry.clone(),positions=shank.attributes.position;
-  for(let i=0;i<=192;i++)for(let j=0;j<=24;j++){
-   const a=i/192*Math.PI*2,b=j/24*Math.PI*2,r=1.12+Math.cos(b)*(.043/scale);
-   positions.setXYZ(i*25+j,Math.cos(a)*r,Math.sin(a)*r-.2,Math.sin(b)*(.043/scale));
+  const {N,M}=sourceRing.band.geometry.userData.bandSegments;
+  for(let i=0;i<=N;i++)for(let j=0;j<=M;j++){
+   const a=i/N*Math.PI*2,b=j/M*Math.PI*2,r=1.12+Math.cos(b)*(.043/scale);
+   positions.setXYZ(i*(M+1)+j,Math.cos(a)*r,Math.sin(a)*r-.2,Math.sin(b)*(.043/scale));
   }
   shank.computeVertexNormals();morphTo(sourceRing.band,shank);
+  const matchingTube=(object,points,radius)=>{const {tubularSegments,radialSegments}=object.geometry.parameters;return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(ringPoint)),tubularSegments,radius/scale,radialSegments,false);};
   prongPaths.forEach((points,i)=>{
-   morphTo(sourceRing.claws[i],new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(ringPoint)),48,.014/scale,10,false));
+   morphTo(sourceRing.claws[i],matchingTube(sourceRing.claws[i],points,.014));
    const tip=ringPoint(points.at(-1));morphTo(sourceRing.tips[i],new THREE.SphereGeometry(.014/scale,12,12).translate(tip.x,tip.y,tip.z));
   });
-  shoulderPaths.forEach((points,i)=>morphTo(sourceRing.shoulders[i],new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(ringPoint)),48,.018/scale,10,false)));
-  const collarPoint=ringPoint(V(.04,.32,.50));morphTo(sourceRing.girdle,new THREE.TorusGeometry(.115/scale,.013/scale,10,64).rotateX(Math.PI/2).translate(collarPoint.x,collarPoint.y,collarPoint.z));
+  shoulderPaths.forEach((points,i)=>morphTo(sourceRing.shoulders[i],matchingTube(sourceRing.shoulders[i],points,.018)));
+  const collarPoint=ringPoint(V(.04,.32,.50)),collarSegments=sourceRing.girdle.geometry.parameters;morphTo(sourceRing.girdle,new THREE.TorusGeometry(.115/scale,.013/scale,collarSegments.radialSegments,collarSegments.tubularSegments).rotateX(Math.PI/2).translate(collarPoint.x,collarPoint.y,collarPoint.z));
   const channelCurve=new THREE.CatmullRomCurve3(feedPoints.map(ringPoint)),frames=channelCurve.computeFrenetFrames(80,false);
   const runner=sourceRing.stem.geometry.clone(),rp=runner.attributes.position;
   for(let i=0;i<rp.count;i++){
