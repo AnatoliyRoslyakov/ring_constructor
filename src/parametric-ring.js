@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createDiamondEnvironment } from './diamond.js';
 import { refractionMaterial } from './diamond-material.js';
-import { createSatinReflection } from './satin-reflection.js';
 import { normalizeDesign, dimensions } from './ring-design.js';
 import { gems,shapeRatios,sceneCatalog } from './constructor/catalog.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { buildFreeMetal,freeBandFrame } from './freeform-geometry.js';
 
 const V=(x,y,z)=>new THREE.Vector3(x,y,z),TAU=Math.PI*2;
 const signedPow=(v,p)=>Math.sign(v)*Math.pow(Math.abs(v),p);
@@ -22,6 +21,11 @@ function outline(shape,n=32){
   if(shape==='pear'){const fullness=.76-.24*s;x=c*.5*fullness/.79;z=s*.75;}
   if(shape==='marquise'){x=signedPow(c,2)*.5;z=s*.9;}
   if(shape==='heart'){x=Math.pow(Math.sin(a),3)*.5;z=-(13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a))/32;}
+  if(shape==='halfmoon'){const theta=i/(n-1)*Math.PI-Math.PI/2;x=Math.cos(theta);z=Math.sin(theta)*ratio*.5;}
+  if(shape==='trapezoid'){
+   const vertices=[new THREE.Vector2(-.5,-ratio*.5),new THREE.Vector2(.5,-ratio*.29),new THREE.Vector2(.5,ratio*.29),new THREE.Vector2(-.5,ratio*.5)];
+   const at=i/n*4,edge=Math.floor(at),v=vertices[edge].clone().lerp(vertices[(edge+1)%4],at-edge);x=v.x;z=v.y;
+  }
   if(shape==='trillion'||shape==='hexagon'){
    const count=shape==='trillion'?3:6,sector=TAU/count,phase=shape==='trillion'?Math.PI/2:0;
    const radius=.5*Math.cos(Math.PI/count)/Math.cos(((a-phase+sector*8+Math.PI/count)%sector)-Math.PI/count);
@@ -55,16 +59,20 @@ function surfaceAt(points,angle){
  }
  return new THREE.Vector2(dx*distance,dz*distance);
 }
-function bandGeometry(d,branch=0){
- const N=192,M=24,p=[],indices=[],r=d.ringSize/2+d.thickness/2;
- for(let i=0;i<=N;i++){
-  const a=i/N*TAU,shoulder=Math.pow(Math.max(0,Math.sin(a)),8),twist=a*3;
+function bandSection(d,a,branch=0){
+  const shoulder=Math.pow(Math.max(0,Math.sin(a)),8),twist=a*3;
   let width=d.width*(['tapered','cathedral'].includes(d.shank)?1-d.taper*shoulder:1),offset=0,radialOffset=0;
   if(d.shank==='split'){width*=.5;offset=branch*(d.width*.25+shoulder*d.gemSize*.18);}
   if(['twist','rope','organic'].includes(d.shank)){const turns=d.shank==='rope'?a*9:d.shank==='organic'?a*2:twist;width*=.46;offset=branch*d.width*.28*Math.cos(turns);radialOffset=branch*d.thickness*.30*Math.sin(turns);}
   if(d.shank==='double'){width*=.42;offset=branch*d.width*.32;}
   if(d.shank==='bypass'){offset=Math.sin(a)*d.width*.38;radialOffset=Math.cos(a)*shoulder*.45;}
   if(d.shank==='chevron')radialOffset=-shoulder*(.75+Math.abs(Math.cos(a))*.9);
+  return {width,offset,radialOffset};
+}
+function bandGeometry(d,branch=0){
+ const N=192,M=24,p=[],indices=[],r=d.ringSize/2+d.thickness/2;
+ for(let i=0;i<=N;i++){
+  const a=i/N*TAU,{width,offset,radialOffset}=bandSection(d,a,branch);
   for(let j=0;j<=M;j++){
    const b=j/M*TAU,c=Math.cos(b),s=Math.sin(b),power=d.profile==='square'?.2:d.profile==='flat'?.36:d.profile==='comfort'?.65:1;
    const radial=signedPow(c,power)*d.thickness/2,axial=(d.profile==='knife'?signedPow(s,.45):signedPow(s,power))*width/2;
@@ -74,12 +82,15 @@ function bandGeometry(d,branch=0){
  for(let i=0;i<N;i++)for(let j=0;j<M;j++){const a=i*(M+1)+j,b=a+M+1;indices.push(a,b,a+1,b,b+1,a+1);}
  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setIndex(indices);g.computeVertexNormals();return g;
 }
-function pipe(points,radius,material,parent,taper=1){
- const curve=new THREE.CatmullRomCurve3(points),g=new THREE.TubeGeometry(curve,36,radius,12,false);
+function pipe(points,radius,material,parent,taper=1,closed=false){
+ const curve=new THREE.CatmullRomCurve3(points,closed,'centripetal'),segments=closed?Math.max(64,points.length*3):36,g=new THREE.TubeGeometry(curve,segments,radius,12,closed);
  if(taper!==1){const p=g.attributes.position;for(let i=0;i<=36;i++){const center=curve.getPointAt(i/36),factor=THREE.MathUtils.lerp(1,taper,Math.pow(i/36,4));for(let j=0;j<=12;j++){const n=i*13+j;p.setXYZ(n,center.x+(p.getX(n)-center.x)*factor,center.y+(p.getY(n)-center.y)*factor,center.z+(p.getZ(n)-center.z)*factor);}}g.computeVertexNormals();}
  const m=new THREE.Mesh(g,material);parent.add(m);return m;
 }
-function contourTube(points,y,r,material,parent,scale=1){return pipe([...points,points[0],points[1]].map(p=>V(p.x*scale,y,p.y*scale)),r,material,parent);}
+function contourTube(points,y,r,material,parent,scale=1){return pipe(points.map(p=>V(p.x*scale,y,p.y*scale)),r,material,parent,1,true);}
+function offsetContour(points,distance){
+ return points.map((p,i)=>{const previous=points[(i+points.length-1)%points.length],next=points[(i+1)%points.length],a=p.clone().sub(previous).normalize(),b=next.clone().sub(p).normalize(),n=new THREE.Vector2(a.y+b.y,-a.x-b.x).normalize();return p.clone().addScaledVector(n,distance/Math.max(.6,n.dot(new THREE.Vector2(a.y,-a.x))));});
+}
 function bezelGeometry(points,y,wall){
  const p=[],tri=(a,b,c)=>p.push(...a,...b,...c);for(let i=0;i<points.length;i++){
   const a=points[i],b=points[(i+1)%points.length],ext=v=>v.clone().multiplyScalar(1+wall/v.length());
@@ -87,14 +98,6 @@ function bezelGeometry(points,y,wall){
   const A=[a.x,lo,a.y],B=[b.x,lo,b.y],C=[a.x,hi,a.y],D=[b.x,hi,b.y],E=[ae.x,lo,ae.y],F=[be.x,lo,be.y],G=[ae.x,hi,ae.y],H=[be.x,hi,be.y];
   tri(E,G,F);tri(F,G,H);tri(A,B,C);tri(B,D,C);tri(C,D,G);tri(D,H,G);tri(A,E,B);tri(B,E,F);
  }return triangleGeometry(p);
-}
-function createSurfaceTexture(kind){
- const canvas=document.createElement('canvas');canvas.width=canvas.height=256;const c=canvas.getContext('2d');let seed=41;
- const random=()=>{seed=seed*16807%2147483647;return seed/2147483647;};
- c.fillStyle='#bcb8ad';c.fillRect(0,0,256,256);
- for(let i=0;i<6000;i++){const n=Math.floor(130+random()*90);c.fillStyle=`rgba(${n},${n},${n},${kind==='velvet'?.14:.22})`;c.fillRect(random()*256,random()*256,kind==='velvet'?.7:1.8,kind==='velvet'?3:1);}
- if(kind==='travertine'||kind==='limestone')for(let i=0;i<34;i++){c.strokeStyle='#746c5d16';c.beginPath();const y=random()*256;c.moveTo(0,y);c.bezierCurveTo(80,y-16,160,y+14,256,y+random()*20);c.stroke();}
- const texture=new THREE.CanvasTexture(canvas);texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(3,3);return texture;
 }
 function createFinishTextures(){
  const textures={};
@@ -114,31 +117,32 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
  scene.add(new THREE.HemisphereLight(0xffffff,0x77849a,1.1));const key=new THREE.DirectionalLight(0xffffff,3);key.position.set(-12,30,28);scene.add(key);const rim=new THREE.DirectionalLight(0xc5d8ff,2);rim.position.set(25,12,-20);scene.add(rim);
  const metal=new THREE.MeshPhysicalMaterial({metalness:1,roughness:.1,clearcoat:.8,clearcoatRoughness:.12,envMapIntensity:1.5});
  const surfaceTextures=createFinishTextures();
- const accentMaterial=new THREE.MeshPhysicalMaterial({color:0xe9f2ff,metalness:.12,roughness:.05,transmission:.6,thickness:.7,ior:2.417,envMapIntensity:2});
  const gemCache=new Map(),controls=new OrbitControls(camera,canvas);controls.target.set(0,2,0);controls.enablePan=false;controls.minDistance=27;controls.maxDistance=95;controls.enableDamping=!reduced;controls.dampingFactor=.12;controls.autoRotateSpeed=.6;controls.maxPolarAngle=Math.PI*.94;controls.minPolarAngle=.08;controls.update();
- const sceneProps=new THREE.Group();scene.add(sceneProps);
- let group,design,dirty=true,active=false,auto=false,lastTime=0,currentView='perspective',lastFit=0;controls.maxDistance=150;const reflection=createSatinReflection(scene,{compact:true,exclude:[]});reflection.scale.setScalar(5);reflection.material.uniforms.uStrength.value=.12;
+ let group,design,dirty=true,active=false,auto=false,lastTime=0,currentView='perspective',lastFit=0;controls.maxDistance=150;
  function fitDistance(){if(!group)return 65;const box=new THREE.Box3().setFromObject(group),size=box.getSize(V(0,0,0));return size.length()*.5/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))/Math.min(camera.aspect,1)*1.05;}
- function disposeGroup(){if(!group)return;const geometries=new Set(),materials=new Set();group.traverse(o=>{if(o.isMesh){if(!o.userData.cached)geometries.add(o.geometry);if(o.isInstancedMesh)o.dispose();if(o.userData.engraving)materials.add(o.material);}});for(const g of geometries)g.dispose();for(const m of materials){m.map?.dispose();m.dispose();}scene.remove(group);}
+ function disposeGroup(){if(!group)return;const geometries=new Set(),materials=new Set();group.traverse(o=>{if(o.isMesh){if(!o.userData.cached)geometries.add(o.geometry);if(o.isInstancedMesh)o.dispose();if(o.userData.engraving||o.userData.ownedMaterial)materials.add(o.material);}});for(const g of geometries)g.dispose();for(const m of materials){m.map?.dispose();m.dispose();}scene.remove(group);}
  function gemFor(shape,kind='diamond'){
   const id=`${shape}:${kind}`;
   if(!gemCache.has(id)){const geometry=gemGeometry(shape),material=refractionMaterial(geometry,gemEnvironment);material.uniforms.bounces.value=innerWidth<700?3:5;material.uniforms.color.value.set(gems[kind].color);material.uniforms.ior.value=gems[kind].ior;gemCache.set(id,{geometry,material});}
   return gemCache.get(id);
  }
- function addGem(parent,shape,kind,size,position,rotation=null,primary=false){
-  const cached=gemFor(shape,kind),geometry=cached.geometry,material=primary?cached.material:accentMaterial,stone=new THREE.Mesh(geometry,material);stone.userData.cached=true;stone.userData.gem=kind;stone.scale.setScalar(size);stone.position.copy(position);if(rotation)stone.rotation.copy(rotation);
-  if(primary)stone.onBeforeRender=(_r,_s,cam)=>{const target=renderer.getRenderTarget();cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();material.uniforms.viewMatrixInverse.value.copy(cam.matrixWorld);material.uniforms.projectionMatrixInverse.value.copy(cam.projectionMatrixInverse);material.uniforms.resolution.value.set(target?target.width:canvas.width,target?target.height:canvas.height);};parent.add(stone);return stone;
+ function addGem(parent,shape,kind,size,position,rotation=null,primary=false,ratio=shapeRatios[shape]){
+  const cached=gemFor(shape,kind),geometry=cached.geometry,material=cached.material,stone=new THREE.Mesh(geometry,material);stone.userData.cached=true;stone.userData.gem=kind;stone.userData.primary=primary;stone.scale.setScalar(size);stone.position.copy(position);if(rotation)stone.rotation.copy(rotation);
+  stone.scale.z*=ratio/shapeRatios[shape];
+  stone.onBeforeRender=(_r,_s,cam)=>{const target=renderer.getRenderTarget();cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();material.uniforms.viewMatrixInverse.value.copy(cam.matrixWorld);material.uniforms.projectionMatrixInverse.value.copy(cam.projectionMatrixInverse);material.uniforms.resolution.value.set(target?target.width:canvas.width,target?target.height:canvas.height);};parent.add(stone);return stone;
  }
  function setDesign(value){
   const normalized=normalizeDesign(value);
   if(design&&JSON.stringify({...design,scene:''})===JSON.stringify({...normalized,scene:''})){design=normalized;setScene(design.scene);return dimensions(design);}
-  design=normalized;const d=design,dim=dimensions(d),outer=d.ringSize/2+d.thickness,girdle=outer+d.gemSize*.44+.45+d.headLift;
+  const hadOrnament=!!design?.freeform?.ornament;design=normalized;const d=design,dim=dimensions(d),outer=d.ringSize/2+d.thickness,girdle=outer+d.gemSize*.44+.45+d.headLift;
   metal.color.set({white:0xe1e4e8,yellow:0xe3b85c,rose:0xd9a293,platinum:0xcbd3dc}[d.metal]);metal.roughness={mirror:.11,satin:.43,brushed:.36,hammered:.25}[d.finish];metal.clearcoat=d.finish==='mirror'?.8:.15;metal.bumpMap=d.finish==='mirror'?null:surfaceTextures[d.finish];metal.bumpScale=d.finish==='hammered'?.075:d.finish==='brushed'?.012:.006;
   disposeGroup();group=new THREE.Group();scene.add(group);
-  const branches=['split','twist','rope','double','organic'].includes(d.shank)?[-1,1]:[0];for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),metal));
-  const points=outline(d.shape).map(p=>{p.multiplyScalar(d.gemSize);return d.orientation==='east'?new THREE.Vector2(-p.y,p.x):p;});
-  const stone=addGem(group,d.shape,d.gem,d.gemSize,V(0,girdle,0),null,true);stone.name='Central stone';if(d.orientation==='east')stone.rotation.y=Math.PI/2;
-  const baseY=outer+.3;
+  const branches=['split','twist','rope','double','organic'].includes(d.shank)?[-1,1]:[0];
+  const points=outline(d.shape).map(p=>{p.y*=d.gemRatio/shapeRatios[d.shape];p.multiplyScalar(d.gemSize);return d.orientation==='east'?new THREE.Vector2(-p.y,p.x):p;});
+  if(d.centerStone){const stone=addGem(group,d.shape,d.gem,d.gemSize,V(0,girdle,0),null,true,d.gemRatio);stone.name='Central stone';if(d.orientation==='east')stone.rotation.y=Math.PI/2;}
+  if(d.freeform){buildFreeMetal(d,dim,group,metal,{outline,surfaceAt});}else{
+for(const branch of branches)group.add(new THREE.Mesh(bandGeometry(d,branch),metal));
+  if(d.centerStone){const baseY=outer+.3;
   contourTube(points,baseY,.22,metal,group,.34);contourTube(points,girdle-.85,.19,metal,group,.83);
   for(const side of [-1,1]){
    const contact=surfaceAt(points,side>0?0:Math.PI);
@@ -153,46 +157,69 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
    for(const side of [-1,1])pipe([V(side*d.ringSize*.40,outer-.6,0),V(side*dim.spanX*.63,girdle-.3,0),V(side*dim.spanX*.48,girdle+.1,0)],Math.max(.42,d.width*.23),metal,group);
   }
   else for(let i=0;i<d.prongs;i++){
-   const offset=d.setting==='compass'?0:(d.shape==='pear'||d.shape==='marquise')?Math.PI/2:Math.PI/4,angle=i/d.prongs*TAU+offset,edge=surfaceAt(points,angle),crown=d.gemSize*.23;
+   const offset=d.setting==='compass'?0:(d.shape==='pear'||d.shape==='marquise')?Math.PI/2:Math.PI/4,rectangular=['princess','emerald','asscher','radiant','cushion'].includes(d.shape),corner=Math.atan2(dim.spanZ,dim.spanX),corners=[corner,Math.PI-corner,Math.PI+corner,TAU-corner],angles=rectangular&&d.setting!=='compass'?(d.prongs===4?corners:d.prongs===6?[...corners,0,Math.PI]:[...corners,0,Math.PI/2,Math.PI,Math.PI*1.5]):null,angle=angles?angles[i]:i/d.prongs*TAU+offset,edge=surfaceAt(points,angle),crown=d.gemSize*.23;
    const flare=d.setting==='tulip'?1.16:d.setting==='crown'?1.10:1.035;
    const path=[V(edge.x*(d.setting==='tulip'?.18:.34),baseY,edge.y*(d.setting==='tulip'?.18:.34)),V(edge.x*(d.setting==='basket'?.95:.83),girdle-.85,edge.y*(d.setting==='basket'?.95:.83)),V(edge.x*flare,girdle+crown*.12,edge.y*flare),V(edge.x*.88,girdle+crown*.30,edge.y*.88)];
    const radius=dim.prong/2;
-   if(d.prongStyle==='double'){const tangent=V(-Math.sin(angle),0,Math.cos(angle));for(const sign of [-1,1])pipe(path.map(p=>p.clone().addScaledVector(tangent,sign*radius*.8)),radius*.62,metal,group,.65);}
+   if(d.prongStyle==='double'){const tangent=V(-Math.sin(angle),0,Math.cos(angle));for(const sign of [-1,1]){const twin=path.map(p=>p.clone().addScaledVector(tangent,sign*radius*.8));pipe(twin,radius*.62,metal,group,.65);const tip=new THREE.Mesh(new THREE.SphereGeometry(radius*.48,10,10),metal);tip.position.copy(twin.at(-1));group.add(tip);}}
    else pipe(path,radius,metal,group,d.prongStyle==='claw'?.32:1);
    if(d.prongStyle==='v'){const tangent=V(-Math.sin(angle)*.25,0,Math.cos(angle)*.25),tip=path.at(-1);for(const sign of [-1,1])pipe([path[2],tip.clone().addScaledVector(tangent,sign)],radius*.7,metal,group,.65);}
-   const tip=new THREE.Mesh(new THREE.SphereGeometry(radius*(d.prongStyle==='claw'?.35:.93),12,12),metal);tip.position.copy(path.at(-1));group.add(tip);
+   if(d.prongStyle!=='double'){const tip=new THREE.Mesh(new THREE.SphereGeometry(radius*(d.prongStyle==='claw'?.35:d.prongStyle==='v'?.5:.93),12,12),metal);tip.position.copy(path.at(-1));group.add(tip);}
   }
-  if(d.shank==='pave'){
-   const smallGeometry=gemGeometry('round'),beadGeometry=new THREE.SphereGeometry(.13,8,8);
-   for(let i=0;i<24;i++){const a=Math.PI*(.5-d.paveCoverage/2)+i/23*Math.PI*d.paveCoverage;if(Math.abs(Math.cos(a)*(outer+.2))<dim.width*.52)continue;
-    const small=new THREE.Mesh(smallGeometry,accentMaterial);small.scale.setScalar(Math.min(1.05,d.width*.48));small.position.set(Math.cos(a)*(outer+.20),Math.sin(a)*(outer+.20),0);small.rotation.z=a-Math.PI/2;group.add(small);
-    for(const z of [-1,1]){const bead=new THREE.Mesh(beadGeometry,metal);bead.position.set(Math.cos(a)*(outer+.08),Math.sin(a)*(outer+.08),z*d.width*.29);group.add(bead);}
+  }}
+  if(d.shank==='pave'||d.pave!=='none'){
+   const bands=d.freeform?.shank?.bands||branches,rows=Number(d.paveRows),beadGeometry=new THREE.SphereGeometry(.09,8,6),arc=d.pave==='full'?TAU:TAU*d.paveCoverage;
+   // Rows run side-by-side across each band's actual cross section, not around the centre stone.
+   const budget=Math.max(16,Math.floor(360/(bands.length*rows))),baseSize=Math.min(1.25,d.width*.72/(rows*1.12)),count=Math.min(budget,Math.max(8,Math.floor(arc*outer/(baseSize*1.16))));
+   const beadPositions=[];
+   for(const branch of bands)for(let i=0;i<count;i++){
+    const a=Math.PI/2-arc/2+(i+.5)/count*arc;if(d.centerStone&&Math.sin(a)>0&&Math.abs(Math.cos(a)*outer)<dim.spanX*.52)continue;
+    if(d.freeform&&!d.freeform.shank)continue;if(d.freeform&&(!branch.closed&&(a*180/Math.PI<branch.stations[0][0]||a*180/Math.PI>branch.stations.at(-1)[0])))continue;
+    const section=d.freeform?freeBandFrame(d,branch,a*180/Math.PI):bandSection(d,a,branch),size=Math.min(1.25,section.width*.72/(rows*1.12)),spacing=size*1.12;
+    for(let row=0;row<rows;row++){
+     const lateral=(row-(rows-1)/2)*spacing;
+     let surface=outer+section.radialOffset,offset=section.offset+lateral;
+     if(d.freeform){
+      // Intersect the real authored profile at this row's axial position.
+      offset=section.offset+lateral;let radial=-Infinity;
+      for(let j=0;j<section.vertices.length;j++){const p=section.vertices[j],q=section.vertices[(j+1)%section.vertices.length];if(lateral>=Math.min(p[1],q[1])&&lateral<=Math.max(p[1],q[1])&&Math.abs(q[1]-p[1])>.0001)radial=Math.max(radial,p[0]+(q[0]-p[0])*(lateral-p[1])/(q[1]-p[1]));}
+      if(!Number.isFinite(radial))continue;surface=section.r+radial;
+     }else{const power=d.profile==='square'?.2:d.profile==='flat'?.36:d.profile==='comfort'?.65:1,s=Math.pow(Math.abs(lateral)/(section.width*.5),1/power);surface-=d.thickness*.5*(1-Math.pow(Math.sqrt(Math.max(0,1-s*s)),power));}
+     addGem(group,'round','diamond',size,V(Math.cos(a)*(surface+size*.06),Math.sin(a)*(surface+size*.06),offset),new THREE.Euler(0,0,a-Math.PI/2));
+     for(const z of [-1,1])beadPositions.push(V(Math.cos(a)*(surface+size*.10),Math.sin(a)*(surface+size*.10),offset+z*size*.47));
+    }
    }
+   if(beadPositions.length){const beads=new THREE.InstancedMesh(beadGeometry,metal,beadPositions.length),pose=new THREE.Object3D();beadPositions.forEach((p,i)=>{pose.position.copy(p);pose.updateMatrix();beads.setMatrixAt(i,pose.matrix);});group.add(beads);}else beadGeometry.dispose();
   }
-  if(d.shank==='cathedral')for(const sign of [-1,1])pipe([V(sign*outer*.90,outer*.40,0),V(sign*outer*.70,outer*.92,0),V(sign*dim.spanX*.40,girdle-.45,0)],Math.max(.3,d.width*.19),metal,group);
-  if(d.setting==='crown')contourTube(points,girdle-.22,.20,metal,group,1.01);
-  if(d.halo!=='none'){
+  if(d.centerStone&&!d.freeform&&d.shank==='cathedral')for(const sign of [-1,1])pipe([V(sign*outer*.90,outer*.40,0),V(sign*outer*.70,outer*.92,0),V(sign*dim.spanX*.40,girdle-.45,0)],Math.max(.3,d.width*.19),metal,group);
+  if(d.centerStone&&!d.freeform&&d.setting==='crown')contourTube(points,girdle-.22,.20,metal,group,1.01);
+  if(d.centerStone&&d.halo!=='none'&&(!d.freeform||d.freeform.setting)){
    const hidden=d.halo==='hidden',rows=d.halo==='double'?2:1;
    for(let row=0;row<rows;row++){
-    const expansion=1+(hidden?-.06:(d.haloSize*.75+row*d.haloSize*1.25)/(d.gemSize*.5));
     const y=hidden?girdle-.65:girdle+.08;
-    contourTube(points,y-.25,.19,metal,group,expansion);
-    const count=Math.min(52,Math.max(16,Math.round((dim.width+dim.length)*1.55/d.haloSize)));
+    const rowPoints=offsetContour(points,hidden?-d.haloSize*.30:d.haloSize*(.67+row*1.12)),curve=new THREE.CatmullRomCurve3(rowPoints.map(p=>V(p.x,y,p.y)),true,'centripetal');
+    contourTube(rowPoints,y-d.haloSize*.34,.19,metal,group);
+    const count=Math.min(72,Math.max(12,Math.floor(curve.getLength()/(d.haloSize*1.08)))),beadGeometry=new THREE.SphereGeometry(.10,8,6);
     for(let i=0;i<count;i++){
-     const edge=surfaceAt(points,i/count*TAU).multiplyScalar(expansion);
-     addGem(group,'round','diamond',d.haloSize,V(edge.x,y,edge.y));
+     const at=curve.getPointAt(i/count),tangent=curve.getTangentAt(i/count);addGem(group,'round','diamond',d.haloSize,at);
+     for(const side of [-1,1]){const bead=new THREE.Mesh(beadGeometry,metal);bead.position.copy(at).addScaledVector(tangent,side*d.haloSize*.47);bead.position.y+=d.haloSize*.10;group.add(bead);}
     }
    }
   }
-  if(d.sideStones!=='none'){
+  if(d.centerStone&&d.sideStones!=='none'&&(!d.freeform||d.freeform.setting)){
    const count=d.sideStones==='pair'?1:d.sideStones==='trio'?2:3;
    for(const sign of [-1,1])for(let i=0;i<count;i++){
-    const size=d.gemSize*d.sideSize*(1-i*.18),x=sign*(dim.spanX*.5+size*.56+i*size*.85),y=outer+.45+d.headLift*.25-i*.35;
-    addGem(group,d.sideShape,'diamond',size,V(x,y,0),new THREE.Euler(0,0,-sign*.22));
-    for(const z of [-1,1])pipe([V(x*.8,outer-.3,0),V(x,y-.3,z*size*.38)],Math.max(.17,size*.08),metal,group);
+    const size=d.gemSize*d.sideSize*(1-i*.18),clearance=['single','double'].includes(d.halo)?d.haloSize*(d.halo==='double'?2.9:1.6):0,x=sign*(dim.spanX*.5+clearance+size*.56+i*size*1.08),y=girdle-(d.gemSize-size)*.3-i*.35,head=new THREE.Group();head.position.set(x,y,0);head.rotation.z=-sign*.18;group.add(head);
+    addGem(head,d.sideShape,'diamond',size,V(0,0,0));if(['halfmoon','trapezoid'].includes(d.sideShape))head.scale.x=sign;
+    const sidePoints=outline(d.sideShape).map(p=>p.multiplyScalar(size));contourTube(sidePoints,-size*.32,.13,metal,head,.65);
+    for(let claw=0;claw<4;claw++){
+     const edge=surfaceAt(sidePoints,Math.PI/4+claw/4*TAU);pipe([V(edge.x*.35,-size*.44,edge.y*.35),V(edge.x*1.04,0,edge.y*1.04),V(edge.x*.90,size*.10,edge.y*.90)],Math.max(.12,size*.06),metal,head,.7);
+    }
+    const anchorX=sign*Math.min(outer*.82,Math.abs(x)*.78),anchorY=Math.sqrt(Math.max(0,outer*outer-anchorX*anchorX));
+    pipe([V(anchorX,anchorY,0),V(x*.94,y-size*.62,0),V(x,y-size*.37,0)],Math.max(.20,size*.08),metal,group);
    }
   }
-  if(d.detail==='milgrain'||d.detail==='rails'){
+  if(!d.freeform&&(d.detail==='milgrain'||d.detail==='rails')){
    const beadGeometry=d.detail==='milgrain'?new THREE.SphereGeometry(.13,8,6):null,instances=beadGeometry?new THREE.InstancedMesh(beadGeometry,metal,176):null,pose=new THREE.Object3D();let beadIndex=0;if(instances)group.add(instances);
    for(const z of [-1,1]){
     if(d.detail==='rails'){
@@ -200,11 +227,11 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
     }else for(let i=0;i<88;i++){const a=i/88*TAU;pose.position.set(Math.cos(a)*(outer-.04),Math.sin(a)*(outer-.04),z*d.width*.40);pose.updateMatrix();instances.setMatrixAt(beadIndex++,pose.matrix);}
    }
   }
-  if(d.detail==='gallery')for(let i=0;i<6;i++){
+  if(d.centerStone&&!d.freeform&&d.detail==='gallery')for(let i=0;i<6;i++){
    const a=i/6*TAU,b=(i+1)/6*TAU,p=surfaceAt(points,a).multiplyScalar(.77),q=surfaceAt(points,b).multiplyScalar(.77);
    pipe([V(p.x,girdle-.75,p.y),V((p.x+q.x)*.42,girdle-1.45,(p.y+q.y)*.42),V(q.x,girdle-.75,q.y)],.15,metal,group);
   }
-  for(const accent of d.accents){
+  for(const accent of d.freeform?[]:d.accents){
    const basis=accent.basis||[d.ringSize,d.gemSize,d.headLift,d.thickness],ringRatio=d.ringSize/basis[0],gemRatio=d.gemSize/basis[1],oldOuter=basis[0]/2+basis[3],oldGirdle=oldOuter+basis[1]*.44+.45+basis[2];
    for(const sign of accent.mirrorX?[-1,1]:[1])pipe(accent.points.map(([x,y,z])=>{const anchor=THREE.MathUtils.clamp((y-oldOuter*.55)/Math.max(1,oldGirdle-oldOuter*.55),0,1);return V(x*sign*THREE.MathUtils.lerp(ringRatio,gemRatio,anchor),y*ringRatio+anchor*(girdle-oldGirdle*ringRatio),z*THREE.MathUtils.lerp(1,gemRatio,anchor));}),accent.radius,metal,group);
   }
@@ -213,27 +240,14 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
    const g=new THREE.CylinderGeometry(d.ringSize/2-.012,d.ringSize/2-.012,d.width*.62,128,1,true,-Math.PI*.225,Math.PI*.45);g.rotateX(Math.PI/2);
    const m=new THREE.MeshBasicMaterial({map:texture,transparent:true,side:THREE.BackSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});const text=new THREE.Mesh(g,m);text.userData.engraving=true;group.add(text);
   }
-  reflection.position.y=-outer-.12;setScene(d.scene);updateSurface(outer);
+  setScene(d.scene);
   const box=new THREE.Box3().setFromObject(group),center=box.getCenter(V(0,0,0)),delta=center.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(center);
-  const fit=fitDistance();if(fit>lastFit*1.03){const direction=camera.position.clone().sub(controls.target);camera.position.copy(controls.target).add(direction.setLength(Math.max(direction.length(),fit)));}lastFit=fit;controls.update();dirty=true;
-  return {...dim,prongCount:d.setting==='bezel'?0:d.prongs,girdle};
+  const fit=fitDistance();if(fit>lastFit*1.03){const direction=camera.position.clone().sub(controls.target);camera.position.copy(controls.target).add(direction.setLength(Math.max(direction.length(),fit)));}lastFit=fit;controls.update();if(!hadOrnament&&d.freeform?.ornament&&currentView==='perspective')setView('perspective');dirty=true;
+  return {...dim,prongCount:!d.centerStone||d.setting==='bezel'?0:d.prongs,girdle};
  }
- function clearSurface(){sceneProps.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.map?.dispose();o.material.dispose();}});sceneProps.clear();}
- function updateSurface(outer){sceneProps.position.y=-outer-.12;}
  function setScene(name){
   const profile=sceneCatalog[name]||sceneCatalog.studio;currentScene=name;
-  renderer.setClearColor(profile.background);renderer.toneMappingExposure=profile.exposure;key.color.set(profile.key);rim.color.set(profile.rim);key.intensity=name==='evening'?3.7:3;rim.intensity=name==='evening'?1.5:2;
-  reflection.visible=name==='studio';
-  if(sceneProps.userData.name!==name){
-   clearSurface();sceneProps.userData.name=name;
-   if(profile.surface){
-    const geometry=new RoundedBoxGeometry(name==='velvet'?36:42,name==='velvet'?4:2,30,5,name==='velvet'?1.8:.6);
-    const texture=createSurfaceTexture(profile.surface),material=new THREE.MeshPhysicalMaterial({color:name==='velvet'?0x5c1d32:name==='daylight'?0xc6c5b7:name==='stone'?0xb2a286:0x29242b,map:texture,roughness:name==='velvet'?.98:.72,metalness:0,sheen:name==='velvet'?1:0,sheenColor:0xa25c70});
-    const pedestal=new THREE.Mesh(geometry,material);pedestal.position.y=name==='velvet'?-2.1:-1.1;sceneProps.add(pedestal);
-    const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),gradient=x.createRadialGradient(32,32,2,32,32,31);gradient.addColorStop(0,'#00000065');gradient.addColorStop(1,'#00000000');x.fillStyle=gradient;x.fillRect(0,0,64,64);
-    const contact=new THREE.Mesh(new THREE.PlaneGeometry(15,10),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false,opacity:.75}));contact.rotation.x=-Math.PI/2;contact.position.y=-.08;sceneProps.add(contact);
-   }
-  }
+  renderer.setClearColor(profile.background);renderer.toneMappingExposure=profile.exposure*(design?.freeform?.ornament?.72:1);key.color.set(profile.key);rim.color.set(profile.rim);key.intensity=name==='evening'?3.7:3;rim.intensity=name==='evening'?1.5:2;
   if(name!=='studio'&&!hdrPromise){
    hdrPromise=import('three/addons/loaders/RGBELoader.js').then(({RGBELoader})=>new RGBELoader().loadAsync('assets/pbr/studio.hdr')).then(texture=>{
     const source=new THREE.WebGLCubeRenderTarget(256);source.fromEquirectangularTexture(renderer,texture);texture.dispose();
@@ -253,22 +267,22 @@ export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
  canvas.addEventListener('keydown',event=>{const movement={ArrowLeft:[.12,0],ArrowRight:[-.12,0],ArrowUp:[0,.1],ArrowDown:[0,-.1]};if(movement[event.key]){event.preventDefault();const offset=camera.position.clone().sub(controls.target),spherical=new THREE.Spherical().setFromVector3(offset);spherical.theta+=movement[event.key][0];spherical.phi=THREE.MathUtils.clamp(spherical.phi+movement[event.key][1],.08,Math.PI*.94);camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));controls.update();dirty=true;}if(event.key==='Home'){event.preventDefault();setView('perspective');}});
  function resize(w,h){const host=canvas.parentElement,width=typeof w==='number'?w:host.clientWidth,height=typeof h==='number'?h:host.clientHeight;if(!width||!height)return;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();setView(currentView);dirty=true;}
  function snapshot({transparent=false,component='ring'}={}){
-  const alpha=renderer.getClearAlpha(),position=camera.position.clone(),rotation=camera.quaternion.clone(),reflected=reflection.visible,visibility=[];
-  if(transparent){renderer.setClearAlpha(0);reflection.visible=false;}
-  if(component==='stone'){
-   let stone;group.traverse(o=>{if(o.isMesh){visibility.push([o,o.visible]);o.visible=!!o.userData.cached;if(o.userData.cached)stone=o;}});
+  const alpha=renderer.getClearAlpha(),position=camera.position.clone(),rotation=camera.quaternion.clone(),visibility=[];
+  if(transparent){renderer.setClearAlpha(0);}
+  if(component==='stone'&&design.centerStone){
+   let stone;group.traverse(o=>{if(o.isMesh){visibility.push([o,o.visible]);o.visible=o.userData.primary===true;if(o.userData.primary)stone=o;}});
    const box=new THREE.Box3().setFromObject(stone),center=box.getCenter(V(0,0,0)),length=box.getSize(V(0,0,0)).length()*.55/Math.sin(THREE.MathUtils.degToRad(camera.fov/2));
    camera.position.copy(V(.5,.5,.85).normalize().multiplyScalar(length)).add(center);camera.lookAt(center);camera.updateMatrixWorld();
   }
   renderer.render(scene,camera);const result=canvas.toDataURL('image/png');
-  for(const [o,visible]of visibility)o.visible=visible;camera.position.copy(position);camera.quaternion.copy(rotation);renderer.setClearAlpha(alpha);reflection.visible=reflected;dirty=true;return result;
+  for(const [o,visible]of visibility)o.visible=visible;camera.position.copy(position);camera.quaternion.copy(rotation);renderer.setClearAlpha(alpha);dirty=true;return result;
  }
- function setView(view){currentView=view;const length=fitDistance(),vectors={perspective:V(.60,.40,.78),front:V(0,.10,1),side:V(1,.10,.02),top:V(.01,1,.04)};camera.position.copy((vectors[view]||vectors.perspective).normalize().multiplyScalar(length)).add(controls.target);controls.update();dirty=true;}
+ function setView(view){currentView=view;const length=fitDistance(),vectors={perspective:design?.freeform?.ornament?V(.92,.28,.62):V(.60,.40,.78),front:V(0,.10,1),side:V(1,.10,.02),top:V(.01,1,.04)};camera.position.copy((vectors[view]||vectors.perspective).normalize().multiplyScalar(length)).add(controls.target);controls.update();dirty=true;}
  function tick(time){if(!active||document.hidden)return;const dt=Math.min(.05,Math.max(0,(time-lastTime)/1000));lastTime=time;const moved=controls.update(dt);if(dirty||moved||controls.autoRotate){renderer.render(scene,camera);dirty=false;}}
  const observer=new ResizeObserver(resize);observer.observe(canvas.parentElement);
  return {setDesign,setScene,resize,tick,setView,async exportGLB(){
   const {GLTFExporter}=await import('three/addons/exporters/GLTFExporter.js');const model=group.clone(true),temporary=[];
   model.traverse(o=>{if(o.isMesh&&o.userData.gem){const g=gems[o.userData.gem],material=new THREE.MeshPhysicalMaterial({color:g.color,roughness:.04,transmission:.95,thickness:1,ior:Math.min(g.ior,2.333),metalness:0});o.material=material;o.onBeforeRender=()=>{};temporary.push(material);}});model.scale.setScalar(.001);model.userData={generator:'ORIGIN Ring Studio',units:'meters',design};
   try{return await new GLTFExporter().parseAsync(model,{binary:true,onlyVisible:true});}finally{temporary.forEach(m=>m.dispose());}
- },setActive(v){active=v;lastTime=performance.now();dirty=true;},setAutoRotate(v){auto=v;controls.autoRotate=v;dirty=true;return auto;},zoom(delta){const direction=camera.position.clone().sub(controls.target);direction.setLength(THREE.MathUtils.clamp(direction.length()*Math.exp(delta),controls.minDistance,controls.maxDistance));camera.position.copy(controls.target).add(direction);controls.update();dirty=true;},snapshot,dispose(){observer.disconnect();disposeGroup();controls.dispose();reflection.dispose();renderer.dispose();lighting.dispose();env.dispose();pmrem.dispose();for(const {geometry,material}of gemCache.values()){geometry.dispose();material.uniforms.bvh.value.dispose();material.dispose();}metal.dispose();accentMaterial.dispose();Object.values(surfaceTextures).forEach(t=>t.dispose());clearSurface();hdrCube?.dispose();hdrLighting?.dispose();}};
+ },setActive(v){active=v;lastTime=performance.now();dirty=true;},setAutoRotate(v){auto=v;controls.autoRotate=v;dirty=true;return auto;},zoom(delta){const direction=camera.position.clone().sub(controls.target);direction.setLength(THREE.MathUtils.clamp(direction.length()*Math.exp(delta),controls.minDistance,controls.maxDistance));camera.position.copy(controls.target).add(direction);controls.update();dirty=true;},snapshot,dispose(){observer.disconnect();disposeGroup();controls.dispose();renderer.dispose();lighting.dispose();env.dispose();pmrem.dispose();for(const {geometry,material}of gemCache.values()){geometry.dispose();material.uniforms.bvh.value.dispose();material.dispose();}metal.dispose();Object.values(surfaceTextures).forEach(t=>t.dispose());hdrCube?.dispose();hdrLighting?.dispose();}};
 }

@@ -3,6 +3,7 @@ from pathlib import Path
 import json, math, re
 ROOT=Path(__file__).resolve().parents[1]
 SCHEMA=json.loads((ROOT/'src/constructor/schema.json').read_text())
+from .freeform_schema import validate_freeform, FreeformError
 class RecipeError(ValueError): pass
 
 def validate_design(value, *, partial=False):
@@ -24,6 +25,10 @@ def validate_design(value, *, partial=False):
     result['purity']=value.get('purity','750')
     if result['metal']=='platinum': result['purity']='950'
     if result['purity'] not in ('585','750','950') or (result['metal']=='platinum')!=(result['purity']=='950'): raise RecipeError('Проба не соответствует металлу.')
+    if 'centerStone' in value and type(value['centerStone']) is not bool:raise RecipeError('Неверный признак центрального камня.')
+    result['centerStone']=value.get('centerStone',True)
+    if 'openwork' in value and type(value['openwork']) is not bool:raise RecipeError('Неверный признак ажура.')
+    result['openwork']=value.get('openwork',False)
     result['sizeKnown']=value.get('sizeKnown',True) is not False
     engraving=value.get('engraving','')
     if not isinstance(engraving,str) or len(engraving)>24: raise RecipeError('Гравировка длиннее 24 символов.')
@@ -50,5 +55,9 @@ def validate_design(value, *, partial=False):
         total_points+=len(points)*(2 if item.get('mirrorX') is True else 1)
         result['accents'].append({'kind':'sweep','points':clean_points,'radius':round(radius,3),'mirrorX':item.get('mirrorX') is True,**({'basis':basis} if basis is not None else {})})
     if total_points>144: raise RecipeError('Превышен бюджет сложности геометрии.')
+    try:result['freeform']=validate_freeform(value.get('freeform'))
+    except FreeformError as error:raise RecipeError(str(error)) from error
     result['version']=2
+    if 'gemRatio' not in value: result['gemRatio']=SCHEMA['shapeRatios'][result['shape']]
+    if result['shape'] in ('round','princess','asscher'): result['gemRatio']=1
     return result

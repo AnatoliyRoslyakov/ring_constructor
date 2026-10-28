@@ -1,0 +1,1 @@
+import{i as a,j as b,k as c,l as d,m as e,n as f,o as g,p as h}from"./chunk-UWXOWR4O.js";export{a as choices,b as defaults,g as designWarnings,f as dimensions,d as normalizeAccents,e as normalizeDesign,c as ranges,h as specification};
