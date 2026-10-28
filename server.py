@@ -3,7 +3,7 @@ from pathlib import Path
 import gzip, io, re, json, base64, uuid, threading, time
 from urllib.parse import urlsplit, parse_qs
 ROOT=Path(__file__).resolve().parent
-FRAMES=ROOT.parent.parent/'work'/'frames'
+FRAMES=ROOT/'work'/'frames'
 TEXT_TYPES={'.js','.css','.json','.gltf','.svg'}
 COMPRESSED={}
 REQUESTS=ROOT.parent.parent/'work'/'ring-requests'
@@ -87,14 +87,19 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if urlsplit(self.path).path=='/api/ring-requests':
             self.save_ring_request();return
-        match=re.fullmatch(r'/__studio/frame/(\d{4})',self.path)
+        url=urlsplit(self.path)
+        match=re.fullmatch(r'/__studio/frame/(\d{4})',url.path)
         if not match:
             self.send_error(404);return
         count=int(self.headers.get('Content-Length','0'))
         if count>4000000:
             self.send_error(413);return
-        FRAMES.mkdir(parents=True,exist_ok=True)
-        (FRAMES/f'{match[1]}.jpg').write_bytes(self.rfile.read(count))
+        profile=parse_qs(url.query).get('profile',['desktop'])[0]
+        if profile not in ('desktop','portrait'):
+            self.send_error(400);return
+        directory=FRAMES/profile
+        directory.mkdir(parents=True,exist_ok=True)
+        (directory/f'{match[1]}.jpg').write_bytes(self.rfile.read(count))
         self.send_response(204);self.end_headers()
     def send_json(self,status,payload):
         data=json.dumps(payload,ensure_ascii=False).encode('utf-8')

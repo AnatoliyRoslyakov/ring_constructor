@@ -3,6 +3,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 import { setupInteractions } from './interactions.js';
 import { setupStoryParticles } from './story-particles.js';
+import { FILM_FPS, FILM_LAST_FRAME, FILM_VERSION } from './story-film.js';
 gsap.registerPlugin(ScrollTrigger);ScrollTrigger.config({ignoreMobileResize:true});
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const staticStory=reduced||navigator.connection?.saveData===true;
@@ -51,10 +52,10 @@ function updateChapters(){
  });
  if(index!==lastIndex){chapters.forEach((el,i)=>{el.classList.toggle('is-active',index===i);el.inert=index!==i;el.setAttribute('aria-hidden',String(index!==i));});interactions.chapterChanged();dots.forEach((d,i)=>{d.classList.toggle('active',index===i);d.setAttribute('aria-pressed',String(index===i))});currentLabel.textContent=String(index).padStart(2,'0');lastIndex=index;if(staticStory||!filmReady)setPoster(index);}
  progress.style.transform=`scaleY(${state.p})`;spec.style.opacity=1-gsap.utils.clamp(0,1,(state.p-.17)/.1);wordmark.style.opacity=.045*(1-gsap.utils.clamp(0,1,state.p/.2));
- desiredFrame=Math.round(state.p*431);seekFilm();updateFinalGlint();
+ desiredFrame=Math.round(state.p*FILM_LAST_FRAME);seekFilm();updateFinalGlint();
 }
 function updateFinalGlint(){
- const q=Math.min(state.p,film.currentTime*24/431);
+ const q=Math.min(state.p,film.currentTime*FILM_FPS/FILM_LAST_FRAME);
  const fade=gsap.utils.clamp(0,1,(q-.925)/.035);
  const opacity=Number((fade*.85).toFixed(3));if(opacity!==glintOpacity){finalGlint.style.opacity=String(opacity);glintOpacity=opacity;}
  if(!fade)return;
@@ -72,15 +73,15 @@ function updateFinalGlint(){
  finalGlint.style.transform=`translate3d(${u*sourceW*cover+(innerWidth-sourceW*cover)/2}px,${v*sourceH*cover+(innerHeight-sourceH*cover)/2}px,0)`;
  finalGlint.style.setProperty('--glint-size',`${Math.min(22,Math.max(10,22*cover))}px`);
 }
-function seekFilm(){if(!filmReady||film.seeking||inspect||document.hidden)return;const target=desiredFrame/24;if(Math.abs(film.currentTime-target)>1/48)film.currentTime=target;}
+function seekFilm(){if(!filmReady||film.seeking||inspect||document.hidden)return;const target=desiredFrame/FILM_FPS;if(Math.abs(film.currentTime-target)>.5/FILM_FPS)film.currentTime=target;}
 function loadFilm(){
  if(studioMode||staticStory)return;
  const profile=mobileMedia.matches?'portrait':innerWidth<=1050?'compact':'desktop';if(profile===mediaProfile)return;
  mediaProfile=profile;filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));
  // Increment the media version whenever films are regenerated: these URLs are cached immutably.
- film.src=`assets/journey${profile==='portrait'?'-portrait':profile==='compact'?'-compact':''}.mp4?v=media-24`;film.load();
+ film.src=`assets/journey${profile==='portrait'?'-portrait':profile==='compact'?'-compact':''}.mp4?v=${FILM_VERSION}`;film.load();
 }
-film.addEventListener('loadeddata',()=>{filmReady=true;const target=desiredFrame/24;if(Math.abs(film.currentTime-target)>1/48){film.addEventListener('seeked',()=>stage.classList.add('film-ready'),{once:true});seekFilm();}else stage.classList.add('film-ready');});
+film.addEventListener('loadeddata',()=>{filmReady=true;const target=desiredFrame/FILM_FPS;if(Math.abs(film.currentTime-target)>.5/FILM_FPS){film.addEventListener('seeked',()=>stage.classList.add('film-ready'),{once:true});seekFilm();}else stage.classList.add('film-ready');});
 film.addEventListener('error',()=>{filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));});
 film.addEventListener('seeked',()=>{seekFilm();updateFinalGlint();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)seekFilm();});
