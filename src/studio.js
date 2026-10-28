@@ -27,18 +27,20 @@ export async function setupPromoSprites(canvas){
 export async function setupStudio(canvas){
  const jewel=createJewelScene(canvas,{craft:true,craftFactory:createCraftScenes});await jewel.ready;
  let rendering=false;const panel=document.querySelector('.studio-panel');panel.hidden=false;panel.querySelectorAll('button').forEach(b=>b.disabled=false);
- const firstFrame=Math.max(0,Math.min(431,Number(new URLSearchParams(location.search).get('from'))||0));
+ const params=new URLSearchParams(location.search);
+ const firstFrame=Math.max(0,Math.min(431,Number(params.get('from'))||0));
+ const lastFrame=params.has('to')?Math.max(firstFrame,Math.min(431,Number(params.get('to'))||0)):431;
  for(const button of panel.querySelectorAll('button'))button.addEventListener('click',async()=>{
   if(rendering)return;rendering=true;panel.querySelectorAll('button').forEach(b=>b.disabled=true);
   const portrait=button.dataset.profile==='portrait',width=portrait?720:1600,height=portrait?1280:1000;
   const status=panel.querySelector('output'),progress=panel.querySelector('progress');
   try{
    jewel.resize(width,height,portrait?'portrait':true);jewel.setInspect(false);jewel.setDesign({finish:'mirror',stone:'classic'});
-   for(let i=firstFrame;i<432;i++){
+   for(let i=firstFrame;i<=lastFrame;i++){
     jewel.render(i/431,i/24,{x:0,y:0});const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.94));
     if(!blob)throw new Error('Frame unavailable');const response=await fetch(`/__studio/frame/${String(i).padStart(4,'0')}`,{method:'POST',body:blob});if(!response.ok)throw new Error('Frame write failed');progress.value=i+1;status.textContent=`${i+1} / 432 — ${portrait?'portrait':'desktop'}`;if(i%4===0)await new Promise(requestAnimationFrame);
    }
-   status.textContent=`RENDER COMPLETE — ${portrait?'720 × 1280':'1600 × 1000'} / 432 frames`;
+   status.textContent=`RENDER COMPLETE — ${portrait?'720 × 1280':'1600 × 1000'} / ${lastFrame-firstFrame+1} frames`;
   }catch(error){status.textContent=error.message;console.error(error);}
   finally{rendering=false;jewel.resize();panel.querySelectorAll('button').forEach(b=>b.disabled=false);}
  });

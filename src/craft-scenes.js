@@ -4,6 +4,8 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const V=(x,y,z)=>new THREE.Vector3(x,y,z);
 const lerp=THREE.MathUtils.lerp;
 const smooth=(a,b,v)=>{const t=THREE.MathUtils.clamp((v-a)/(b-a),0,1);return t*t*(3-2*t)};
@@ -63,7 +65,6 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
  const textureLoader=new THREE.TextureLoader();const scratch=texturedNoise();
  const darkSteel=new THREE.MeshStandardMaterial({color:0x35332e,metalness:.85,roughness:.55,bumpMap:scratch,bumpScale:.004,envMapIntensity:.7});
  const liquid=new THREE.MeshPhysicalMaterial({color:0xffb454,metalness:.65,roughness:.23,envMapIntensity:.65,emissive:0xff550a,emissiveIntensity:.85});
- const darkGold=new THREE.MeshPhysicalMaterial({color:0xc99b38,metalness:1,roughness:.29,bumpMap:scratch,bumpScale:.002,envMapIntensity:1.1});
  const flask=new THREE.Group();cast.add(flask);flask.position.set(0,-.48,0);
  // A close-fitting split mould follows the shank, sprue and six prongs.
  const shellMaterial=new THREE.MeshPhysicalMaterial({color:0xd6e3e9,metalness:.03,roughness:.27,clearcoat:.35,clearcoatRoughness:.23,envMapIntensity:.8,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide});
@@ -204,14 +205,29 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
  for(let i=0;i<ip.count;i++){const y=ip.getY(i),x=ip.getX(i),z=ip.getZ(i);const topness=smooth(.04,.22,y);const taper=1-topness*.025;ip.setXYZ(i,x*taper,y+topness*(Math.sin(x*10+z*6)*.003+Math.sin(x*29-z*14)*.0016),z*taper)}ingotGeo.computeVertexNormals();
  const sideGold=new THREE.MeshPhysicalMaterial({color:0xd6a644,metalness:1,roughness:.26,bumpMap:scratch,bumpScale:.004,envMapIntensity:1.1});
  const topGold=new THREE.MeshPhysicalMaterial({map:stampTexture(true),bumpMap:stampTexture(false),bumpScale:.011,metalness:1,roughness:.47,envMapIntensity:.7});
+ const stampReveal={value:0},stampBase={value:new THREE.Color(0xc99b38)};
+ topGold.onBeforeCompile=shader=>{
+  shader.uniforms.stampReveal=stampReveal;shader.uniforms.stampBase=stampBase;
+  shader.fragmentShader='uniform float stampReveal;uniform vec3 stampBase;\n'+shader.fragmentShader;
+  shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\ndiffuseColor.rgb=mix(stampBase,diffuseColor.rgb,stampReveal);');
+ };
+ topGold.customProgramCacheKey=()=> 'origin-progressive-ingot-stamp';
  const bar=mesh(ingotGeo,[sideGold,sideGold,topGold,sideGold,sideGold,sideGold],ingot,-.28,-.975,0);bar.rotation.y=-.18;
- const bridgeGeometry=ingotGeo.clone();const bridgeTarget=bridgeGeometry.attributes.position.array.slice();const bridgeOrigin=new Float32Array(bridgeTarget.length);
- const bp=bridgeGeometry.attributes.position;
- for(let i=0;i<bp.count;i++){
-  const x=bp.getX(i),y=bp.getY(i),z=bp.getZ(i);const u=Math.atan2(z/.51,x/1.125);const radial=Math.hypot(x/1.125,z/.51);const v=Math.atan2(y/.215,(radial-.7)*2);
-  bridgeOrigin[i*3]=Math.cos(u)*(.38+Math.cos(v)*.05);bridgeOrigin[i*3+1]=Math.sin(u)*(.38+Math.cos(v)*.05);bridgeOrigin[i*3+2]=Math.sin(v)*.05;
+ // Subdivide the actual finished ingot, preserving every face's UVs and normals.
+ const ingotSurface=ingotGeo.index?ingotGeo.toNonIndexed():ingotGeo;
+ const tessellator=new TessellateModifier(.085,8),faces=[];
+ for(const group of ingotSurface.groups){
+  const face=new THREE.BufferGeometry();
+  for(const name of ['position','normal','uv']){
+   const attribute=ingotSurface.attributes[name],values=attribute.array.slice(group.start*attribute.itemSize,(group.start+group.count)*attribute.itemSize);
+   face.setAttribute(name,new THREE.BufferAttribute(values,attribute.itemSize));
+  }
+  faces.push(tessellator.modify(face));face.dispose();
  }
- const bridge=mesh(bridgeGeometry,darkGold,world);bridge.frustumCulled=false;
+ const bridgeGeometry=mergeGeometries(faces,true);faces.forEach(face=>face.dispose());
+ const bp=bridgeGeometry.attributes.position,bridgeTarget=bp.array.slice(),bridgeNormals=bridgeGeometry.attributes.normal.array.slice(),bridgeOrigin=new Float32Array(bridgeTarget.length);
+ for(let i=0;i<bp.count;i++)V(bp.getX(i)/1.125,bp.getY(i)/.215,bp.getZ(i)/.51).normalize().multiplyScalar(.16).toArray(bridgeOrigin,i*3);
+ bar.geometry=bridgeGeometry;bar.frustumCulled=false;ingotGeo.dispose();
  const velvetNoise=new Uint8Array(128*128*4);let velvetSeed=71;
  for(let i=0;i<velvetNoise.length;i+=4){velvetSeed=(velvetSeed*16807)%2147483647;const n=90+velvetSeed%80;velvetNoise[i]=velvetNoise[i+1]=velvetNoise[i+2]=n;velvetNoise[i+3]=255;}
  const velvetTexture=new THREE.DataTexture(velvetNoise,128,128,THREE.RGBAFormat);velvetTexture.wrapS=velvetTexture.wrapT=THREE.RepeatWrapping;velvetTexture.repeat.set(18,11);velvetTexture.magFilter=THREE.LinearFilter;velvetTexture.needsUpdate=true;
@@ -351,9 +367,12 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
   const barOffset=.60*smooth(.675,.715,q)*(1-barFall*barFall)+barBounce,gemOffset=.48*smooth(.677,.722,q)*(1-gemFall*gemFall)+gemBounce;
   const barPress=smooth(.739,.751,q),gemPress=smooth(.751,.764,q);
   const gemX=mobile?-1.05:-1.72;sandUniforms.gemX.value=gemX;gemContact.position.x=gemX;
-  const release=smooth(.635,.700,q),morph=smooth(.64,.715,q),emerge=smooth(.806,.91,q);
-  const casting=q>.37&&q<.725;
+  const release=smooth(.632,.652,q),morph=smooth(.652,.715,q),emerge=smooth(.806,.91,q);
+  const casting=q>.37&&q<.67;
   cast.visible=casting;cast.traverse(object=>{if(object.isMesh)object.castShadow=q<.65&&!object.material.transparent;});cast.scale.setScalar(1+.055*smooth(.44,.49,q)*(1-smooth(.62,.65,q)));cast.rotation.set(0,lerp(.16+(q-.53)*.3,-.2,release),0);cast.position.y=0;
+  const gather=smooth(.632,.650,q),castSize=lerp(1,.19,gather);
+  flask.scale.setScalar(castSize);
+  flask.position.set(.04*(1-castSize),-.60+.12*castSize,.50*(1-castSize));
   const transfer=smooth(.36,.46,q),waxTurn=smooth(.395,.46,q);
   for(const object of transferMeshes){object.morphTargetInfluences[0]=transfer;if(object.morphTargetInfluences.length>1)object.morphTargetInfluences[1]=Math.sin(transfer*Math.PI);}
   if(sourceRing){const material=sourceRing.metal;material.color.set(0xe8e9e8).lerp(waxRingMaterial.color,waxTurn);material.metalness=1-waxTurn;material.roughness=lerp(material.roughness,.29,waxTurn);material.envMapIntensity=lerp(1.9,.85,waxTurn);material.clearcoat=lerp(material.clearcoat,.18,waxTurn);material.clearcoatRoughness=lerp(.07,.42,waxTurn);material.bumpScale*=1-waxTurn;}
@@ -370,13 +389,13 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
   crucible.rotation.z=0;
   outsideFlow.uniforms.head.value=smooth(.516,.531,q);outsideFlow.uniforms.tail.value=smooth(.625,.646,q);
   stream.visible=q>.516&&q<.647;
-  feedFlow.uniforms.head.value=smooth(.530,.552,q);feedFlow.uniforms.tail.value=0;filledRunner.visible=q>.530&&q<.700;
+  feedFlow.uniforms.head.value=smooth(.530,.552,q);feedFlow.uniforms.tail.value=0;filledRunner.visible=q>.530&&q<.650;
   const fill=smooth(.552,.620,q),cool=smooth(.620,.646,q);
   ringFlow.uniforms.head.value=lerp(-.46,.63,fill);ringFlow.uniforms.tail.value=-1;
   prongFlow.uniforms.head.value=ringFlow.uniforms.head.value-.12;prongFlow.uniforms.tail.value=-1;
   collarFlow.uniforms.head.value=ringFlow.uniforms.head.value-.44;
-  filledBasket.visible=q>.552&&q<.646;
-  castRing.visible=q>.552&&q<.646;
+  filledBasket.visible=q>.552&&q<.650;
+  castRing.visible=q>.552&&q<.650;
   menisci.forEach((m,i)=>{const h=THREE.MathUtils.clamp(ringFlow.uniforms.head.value,-.38,.38);m.visible=q>.552&&q<.620&&ringFlow.uniforms.head.value<.38;m.position.set(.04+(i?1:-1)*Math.sqrt(Math.max(0,.38*.38-h*h)),-.12+h,.505)});
   ringFlow.material.emissiveIntensity=lerp(.95,.10,cool);ringFlow.material.color.set(0xffc46a).lerp(new THREE.Color(0xc99b38),cool);
   for(const material of [prongFlow.material,collarFlow.material]){material.emissiveIntensity=ringFlow.material.emissiveIntensity;material.color.copy(ringFlow.material.color);}
@@ -388,23 +407,31 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
   pool.visible=q>.530&&q<.64;pool.scale.setScalar(.87+smooth(.530,.60,q)*.1);
   droplets.forEach((d,i)=>{const t=(q*14+i*.137)%1,a=i*2.399;d.visible=q>.530&&q<.625;d.position.set(Math.cos(a)*t*.065,.315+Math.sin(t*Math.PI)*.055,.50+Math.sin(a)*t*.065);d.scale.setScalar(Math.sin(t*Math.PI))});
   heat.intensity=(q>.530&&q<.64)?1.2+fill*1.1:0;
-  // One continuous piece of metal expands from a ring into a bar as the mould peels away.
-  bridge.visible=q>=.64&&q<.716;
-  if(bridge.visible){
-   const sourceMatrix=new THREE.Matrix4().makeRotationY(cast.rotation.y);sourceMatrix.setPosition(V(.04,-.60,.50).applyEuler(cast.rotation));
-   const targetAngle=-.2+(q-.74)*.65-.18;const targetMatrix=new THREE.Matrix4().makeRotationY(targetAngle);targetMatrix.setPosition(V(-.28,-.975+barOffset,0).applyAxisAngle(V(0,1,0),-.2+(q-.74)*.65));
-   const a=V(0,0,0),b=V(0,0,0);
-   for(let i=0;i<bp.count;i++){a.fromArray(bridgeOrigin,i*3).applyMatrix4(sourceMatrix);b.fromArray(bridgeTarget,i*3).applyMatrix4(targetMatrix);a.lerp(b,morph);bp.setXYZ(i,a.x,a.y,a.z)}
-   bp.needsUpdate=true;bridgeGeometry.computeVertexNormals();
-  }
   const handover=.806,goldHandoff=smooth(.796,.819,q),cushionDeflate=smooth(.780,.796,q),plinthExit=smooth(.786,.796,q);
   ingot.visible=q>.64&&q<.898;ingot.scale.setScalar(1);ingot.rotation.set(0,-.2+(Math.min(q,handover)-.74)*.65,0);
-  bar.visible=q>=.715&&q<.819;bar.scale.set(1,1,1);bar.position.y=-.975+barOffset;bar.rotation.x=.045*(1-smooth(.719,.768,q))*smooth(.68,.715,q);bar.rotation.z=.018*Math.sin(barImpact*Math.PI*2)*Math.exp(-barImpact*4);for(const material of [sideGold,topGold]){material.transparent=true;material.opacity=1-goldHandoff;material.depthWrite=q<.796;}
-  sideGold.roughness=.26;ingotStand.visible=q>=.667&&q<.796;ingotStand.position.y=lerp(-1.79,-1.50,inflate)-cushionDeflate*.245-plinthExit*.08;
+  // Keep the same mesh, normals and materials through forming, settling and presentation.
+  bar.visible=q>=.642&&q<.819;
+  const barTurn=-.2+(Math.min(q,handover)-.74)*.65;
+  const sourceCenter=V(.04,-.60,.50).applyEuler(cast.rotation).applyAxisAngle(V(0,1,0),-barTurn);
+  bar.position.copy(sourceCenter).lerp(V(-.28,-.975+barOffset,0),morph);
+  bar.rotation.set(.045*(1-smooth(.719,.768,q))*smooth(.68,.715,q)*morph,lerp(cast.rotation.y-barTurn,-.18,morph),.018*Math.sin(barImpact*Math.PI*2)*Math.exp(-barImpact*4)*morph);
+  if(bar.visible){
+   const dropGrowth=smooth(.642,.650,q),normal=bridgeGeometry.attributes.normal,a=V(0,0,0),b=V(0,0,0);
+   for(let i=0;i<bp.count;i++){
+    a.fromArray(bridgeOrigin,i*3).multiplyScalar(dropGrowth);b.fromArray(bridgeTarget,i*3);a.lerp(b,morph);bp.setXYZ(i,a.x,a.y,a.z);
+    a.fromArray(bridgeOrigin,i*3).normalize();b.fromArray(bridgeNormals,i*3);a.lerp(b,morph).normalize();normal.setXYZ(i,a.x,a.y,a.z);
+   }
+   bp.needsUpdate=true;normal.needsUpdate=true;
+  }
+  stampReveal.value=smooth(.692,.755,q);stampBase.value.set(0xc99b38).lerp(new THREE.Color(0xd6a644),morph);
+  sideGold.color.copy(stampBase.value);sideGold.roughness=lerp(.29,.26,morph);sideGold.bumpScale=lerp(.002,.004,morph);
+  topGold.roughness=lerp(.29,.47,stampReveal.value);topGold.envMapIntensity=lerp(1.1,.7,stampReveal.value);topGold.bumpScale=.011*stampReveal.value;
+  for(const material of [sideGold,topGold]){material.transparent=true;material.opacity=1-goldHandoff;material.depthWrite=q<.796;material.emissive.set(0xff9b36);material.emissiveIntensity=(1-morph)*.035;}
+  ingotStand.visible=q>=.667&&q<.796;ingotStand.position.y=lerp(-1.79,-1.50,inflate)-cushionDeflate*.245-plinthExit*.08;
   ingotStand.scale.set((lerp(.90,1,inflate)+Math.abs(barBounce)*.16)*(1+cushionDeflate*.025-plinthExit*.08),lerp(.045,1,inflate)*(1-cushionDeflate*.965),(lerp(.88,1,inflate)+Math.abs(gemBounce)*.13)*(1+cushionDeflate*.035-plinthExit*.08));
   standMaterial.opacity=smooth(.667,.683,q)*(1-plinthExit);seamMaterial.opacity=standMaterial.opacity;
   if(ingotStand.visible){const gemSeat=V(1.20,0,.62).applyAxisAngle(V(0,1,0),-ingot.rotation.y);deformCushion(barPress,gemPress,barOffset,gemOffset,gemSeat.x-.25,gemSeat.z-.16);}
-  crumbs.forEach(c=>{c.visible=q>.715&&q<handover;c.position.y=-1.18+barOffset*.85;c.scale.set(1.4,.6,1).multiplyScalar(1-smooth(.79,handover,q));});
+  crumbs.forEach(c=>{c.visible=q>.715&&q<handover;c.position.y=-1.18+barOffset*.85;c.scale.set(1.4,.6,1).multiplyScalar(smooth(.715,.735,q)*(1-smooth(.79,handover,q)));});
   const landing=smooth(.91,.965,q),burial=smooth(.965,.998,q),sandIn=smooth(.865,.92,q);
   ore.visible=q>=.796;ore.scale.setScalar(1);
   ore.rotation.set(0,lerp(-.2+(handover-.74)*.65,-.15+(Math.min(q,.965)-.9)*.7,emerge),lerp(0,-.012,landing));

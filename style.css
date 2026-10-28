@@ -87,17 +87,7 @@ dialog#design-dialog{overscroll-behavior:contain}@media(max-width:700px){dialog#
 @media(max-width:700px){.header-cta.design-cta{font-size:9px;padding:11px 12px;gap:9px;margin-right:16px;min-height:38px}.header-cta .cta-3d{display:none}.header-cta.design-cta>svg{width:14px;height:14px}.hero-actions{gap:19px;margin-top:24px;flex-wrap:wrap}.hero-design-cta{font-size:10px;min-width:0;padding:13px 14px;gap:15px;min-height:44px}.hero-design-cta>svg{width:17px;height:17px}.hero-actions>.text-link{font-size:9px;gap:11px}.hero-design-note{font-size:8px;margin-top:10px}.editorial-design-cta{min-width:235px;font-size:11px;padding:16px 20px}.commission-invitation{padding-left:0}.finale h2{font-size:clamp(60px,14.8vw,90px)}.design-collection{height:110px;max-width:330px;margin:0 auto 15px}.commission-invitation .finale-button.design-cta{min-height:76px;font-size:13px;padding:17px 20px}.design-dock{left:16px;right:16px;bottom:calc(15px + env(safe-area-inset-bottom));width:auto;padding:13px 18px}.design-dock .cta-label{flex-direction:row-reverse;align-items:center;gap:18px}.design-dock .cta-label small{font-size:8px}.jewel-burst{display:none}.commission-note{font-size:8px}}
 @media(prefers-reduced-motion:reduce){.jewel-burst{display:none}.design-dock,.design-cta,.design-cta>svg{transition:none}}
 
-/* Scroll reveals a translucent glass surface; the first screen stays open. */
-.site-header{isolation:isolate;transition:padding .45s cubic-bezier(.22,1,.36,1)}
-.site-header::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(115deg,#c6dcf00c,#111e3014 42%,#d4e1f108);border-bottom:1px solid #e5eef526;box-shadow:inset 0 1px 0 #ffffff12,inset 0 -1px 0 #ffffff08,0 12px 32px -24px #0009;-webkit-backdrop-filter:blur(12px) saturate(120%);backdrop-filter:blur(12px) saturate(120%);opacity:0;transition:opacity .45s}
-.site-header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;pointer-events:none;background:linear-gradient(90deg,transparent,#f5e5c477 22%,#e7f1ff1a 50%,#d5e7ff66 80%,transparent);opacity:0;transition:opacity .45s}
-.site-header.scrolled::before,.site-header.scrolled::after{opacity:1}
-.site-header .header-cta.design-cta{transition:background .4s,color .4s,border-color .4s,box-shadow .4s,border-radius .4s}
-.site-header.scrolled .header-cta.design-cta{color:#f8f5ed;background:linear-gradient(135deg,#edf4ff12,#ffffff03 48%,#d7e8ff09);border-color:#ecf3ff40;border-radius:16px;-webkit-backdrop-filter:blur(7px) saturate(125%);backdrop-filter:blur(7px) saturate(125%);box-shadow:inset 0 1px 0 #ffffff40,inset 1px 0 0 #ffffff15,inset 0 -1px 0 #ffffff0d,0 6px 20px -12px #0008}
-.site-header.scrolled .header-cta.design-cta:hover{background:linear-gradient(135deg,#edf4ff20,#ffffff08 48%,#d7e8ff14);border-color:#f0e2c880;box-shadow:inset 0 1px 0 #ffffff66,0 8px 25px -15px #b8d3ec55}
-.site-header.scrolled .cta-3d{border-left-color:#e5edf54d}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.site-header::before{background:#111e30ed}.site-header.scrolled .header-cta.design-cta{background:#24374b}}
-@media(prefers-reduced-motion:reduce){.site-header,.site-header::before,.site-header::after,.site-header .header-cta.design-cta{transition:none}}
+.site-header,.site-header.scrolled{background:rgba(17,30,48,var(--header-fill,0));backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;border:0}.site-header::before,.site-header::after{content:none}
 
 /* A dedicated, full-size parametric jewellery studio. */
 dialog#design-dialog.ring-builder{width:min(1460px,96vw);height:min(920px,94dvh);max-height:94dvh;max-width:96vw;padding:0;border:1px solid #bdc9d733;background:#132238;color:var(--ink);overflow:hidden;overscroll-behavior:contain}
@@ -151,3 +141,6 @@ dialog#design-dialog.ring-builder{width:min(1460px,96vw);height:min(920px,94dvh)
 
 .commission-invitation:has(.is-burst-open) .design-collection{opacity:0}.commission-invitation>p{margin:24px 0 0}.commission-invitation>.commission-note{margin-top:14px}
 @media(max-width:700px){.design-collection{height:145px}.design-collection img{top:-10px;width:150px;height:175px}.design-collection img:nth-child(2){left:calc(50% - 75px);top:-24px}.commission-invitation>p{margin-top:22px}.design-collection{margin-bottom:8px}}
+
+/* Live dust and restrained facet glints, only within the origin story. */
+.stage canvas.journey-particles,.stage.film-ready canvas.journey-particles{opacity:1;pointer-events:none;transition:none;touch-action:auto}.stage.inspecting canvas.journey-particles{display:none}

@@ -2,6 +2,7 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 import { setupInteractions } from './interactions.js';
+import { setupStoryParticles } from './story-particles.js';
 gsap.registerPlugin(ScrollTrigger);ScrollTrigger.config({ignoreMobileResize:true});
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const staticStory=reduced||navigator.connection?.saveData===true;
@@ -20,8 +21,15 @@ let viewer,viewerPromise,customizer,customizerPromise,studio,hologram,holoPromis
 let design={finish:'mirror',stone:'classic'};
 try{design={...design,...JSON.parse(localStorage.getItem('origin-design')||'{}')}}catch{}
 const interactions=setupInteractions({reduced});
+const storyParticles=setupStoryParticles(stage,{disabled:staticStory||studioMode});
 const lenis=new Lenis({duration:1.05,smoothWheel:!reduced,anchors:false});lenis.on('scroll',()=>{ScrollTrigger.update();updateHeader();});
-function updateHeader(){header.classList.toggle('scrolled',window.scrollY>72);}
+let headerFill=-1;
+function updateHeader(){
+ header.classList.toggle('scrolled',window.scrollY>72);
+ const fill=Math.min(1,Math.max(0,(window.scrollY-scroll.end)/Math.min(280,innerHeight*.35)));
+ const alpha=Math.round(fill*1000)/1000;
+ if(alpha!==headerFill){header.style.setProperty('--header-fill',String(alpha));headerFill=alpha;}
+}
 // Give the master's chapter 30% more scroll distance while preserving the other stages' pace.
 const storyWeight=1.045;
 function storyProgress(progress){const weighted=progress*storyWeight;return weighted<.27?weighted:weighted<.465?.27+(weighted-.27)/1.3:weighted-.045;}
@@ -70,7 +78,7 @@ function loadFilm(){
  const profile=mobileMedia.matches?'portrait':innerWidth<=1050?'compact':'desktop';if(profile===mediaProfile)return;
  mediaProfile=profile;filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));
  // Increment the media version whenever films are regenerated: these URLs are cached immutably.
- film.src=`assets/journey${profile==='portrait'?'-portrait':profile==='compact'?'-compact':''}.mp4?v=media-22`;film.load();
+ film.src=`assets/journey${profile==='portrait'?'-portrait':profile==='compact'?'-compact':''}.mp4?v=media-24`;film.load();
 }
 film.addEventListener('loadeddata',()=>{filmReady=true;const target=desiredFrame/24;if(Math.abs(film.currentTime-target)>1/48){film.addEventListener('seeked',()=>stage.classList.add('film-ready'),{once:true});seekFilm();}else stage.classList.add('film-ready');});
 film.addEventListener('error',()=>{filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));});
@@ -107,10 +115,10 @@ if(!reduced){
 }
 const holoObserver=new IntersectionObserver(entries=>{if(!entries.some(e=>e.isIntersecting)||holoPromise)return;holoPromise=import('./hologram.js').then(({setupHologram})=>{hologram=setupHologram($('.holographic'),{reduced});hologram.setReveal(holoReveal);holoObserver.disconnect();}).catch(error=>{console.warn('ORIGIN light study unavailable:',error);$('.holographic').classList.add('holo-fallback');});},{rootMargin:'250px'});holoObserver.observe($('.holographic'));
 if(studioMode){document.body.classList.add('studio-mode');import('./studio.js').then(async({setupStudio,setupPromoSprites})=>{studio=await (promoMode?setupPromoSprites:setupStudio)(canvas);});}
-function frame(time){if(document.hidden)return;lenis.raf(time);hologram?.update(time);if(inspect)viewer?.tick(time);if(dialog.open)customizer?.tick(time);if(studio)studio.render(state.p,time/1000,pointer);}
+function frame(time){if(document.hidden)return;lenis.raf(time);storyParticles.update(time,state.p,pointer,!inspect&&!dialog.open);hologram?.update(time);if(inspect)viewer?.tick(time);if(dialog.open)customizer?.tick(time);if(studio)studio.render(state.p,time/1000,pointer);}
 gsap.ticker.lagSmoothing(0);gsap.ticker.add(time=>frame(time*1000));
 let lastWidth=innerWidth;
-addEventListener('resize',()=>{viewer?.resize();customizer?.resize();studio?.resize();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{const widthChanged=lastWidth!==innerWidth;lastWidth=innerWidth;if(widthChanged||!mobileMedia.matches){lenis.resize();ScrollTrigger.refresh();}if(widthChanged)loadFilm();},180);});
+addEventListener('resize',()=>{storyParticles.resize();viewer?.resize();customizer?.resize();studio?.resize();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{const widthChanged=lastWidth!==innerWidth;lastWidth=innerWidth;if(widthChanged||!mobileMedia.matches){lenis.resize();ScrollTrigger.refresh();updateHeader();}if(widthChanged)loadFilm();},180);});
 mobileMedia.addEventListener('change',()=>{loadFilm();if(staticStory)setPoster(Math.max(0,lastIndex));});
 updateChapters();updateHeader();loadFilm();
 Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,1200))]).then(()=>{lenis.resize();ScrollTrigger.refresh();if(location.hash&&!navigationUsed){const target=$(location.hash);if(target)lenis.scrollTo(target,{offset:-(parseFloat(getComputedStyle(target).scrollMarginTop)||0),immediate:true,force:true});}loader.classList.add('loaded');if(!reduced)gsap.fromTo('.site-header',{y:-12,opacity:0},{y:0,opacity:1,duration:.8,ease:'power2.out'});});
