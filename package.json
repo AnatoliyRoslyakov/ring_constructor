@@ -1,11 +1,11 @@
 {
   "name": "origin-atelier",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "Scroll-directed white gold jewelry experience",
   "scripts": {
     "start": "python3 server.py",
-    "build": "esbuild src/main.js --bundle --minify --format=esm --splitting --outdir=. --entry-names=app --chunk-names=chunks/[name]-[hash]"
+    "build": "node scripts/build.mjs"
   },
   "dependencies": {
     "three": "0.186.1",

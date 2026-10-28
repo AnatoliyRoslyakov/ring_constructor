@@ -2,22 +2,21 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import gzip, io, re, json, base64, uuid, threading, time
 from urllib.parse import urlsplit, parse_qs
+from backend.ring_schema import validate_design, RecipeError
+from backend.deepseek import generate, capabilities, AIError
 ROOT=Path(__file__).resolve().parent
-FRAMES=ROOT.parent.parent/'work'/'frames'
+FRAMES=ROOT/'work'/'frames'
 TEXT_TYPES={'.js','.css','.json','.gltf','.svg'}
 COMPRESSED={}
-REQUESTS=ROOT.parent.parent/'work'/'ring-requests'
+REQUESTS=ROOT/'work'/'ring-requests'
 REQUEST_LOCK=threading.Lock()
 REQUEST_TIMES=[]
-DESIGN_CHOICES={
-    'shank':['classic','tapered','split','twist','pave'],
-    'profile':['round','flat','knife'],
-    'gem':['diamond','lab','sapphire','ruby','emerald','moissanite'],
-    'shape':['round','oval','cushion','princess','emerald','pear','marquise'],
-    'orientation':['north','east'],'setting':['prongs','bezel'],
-    'prongStyle':['round','claw','v'],'metal':['white','yellow','rose','platinum'],
-    'finish':['mirror','satin'],'purity':['585','750','950']
-}
+def private_path(path):
+    path=Path(path).resolve()
+    try: parts=path.relative_to(ROOT).parts
+    except ValueError: return True
+    return any(part.startswith('.') or part in ('work','backend','node_modules','scripts') for part in parts) or path.suffix in ('.py','.pyc','.key','.pem')
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*args,**kwargs): super().__init__(*args,directory=str(ROOT),**kwargs)
     def end_headers(self):
@@ -29,7 +28,9 @@ class Handler(SimpleHTTPRequestHandler):
         if suffix=='.mp4': self.send_header('Accept-Ranges','bytes')
         super().end_headers()
     def send_head(self):
-        path=Path(self.translate_path(self.path))
+        path=Path(self.translate_path(self.path)).resolve()
+        if private_path(path):
+            self.send_error(404);return
         accepts_gzip=any(part.strip().split(';')[0]=='gzip' and not re.search(r';\s*q=0(?:\.0*)?\s*$',part) for part in self.headers.get('Accept-Encoding','').split(','))
         if not accepts_gzip or self.headers.get('Range') or path.suffix not in TEXT_TYPES or not path.is_file():
             return super().send_head()
@@ -56,7 +57,9 @@ class Handler(SimpleHTTPRequestHandler):
         return io.BytesIO(payload)
     def do_GET(self):
         if urlsplit(self.path).path=='/api/ring-config':
-            self.send_json(200,{'emailConfigured':False});return
+            self.send_json(200,{'emailConfigured':False,'ai':capabilities()});return
+        if private_path(self.translate_path(self.path)):
+            self.send_error(404);return
         raw=self.headers.get('Range')
         if raw and self.path.split('?')[0].endswith('.mp4'):
             path=Path(self.translate_path(self.path))
@@ -85,6 +88,8 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
     def do_POST(self):
+        if urlsplit(self.path).path=='/api/ring-ai':
+            self.generate_ring();return
         if urlsplit(self.path).path=='/api/ring-requests':
             self.save_ring_request();return
         match=re.fullmatch(r'/__studio/frame/(\d{4})',self.path)
@@ -101,6 +106,19 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)))
         self.end_headers();self.wfile.write(data)
+    def generate_ring(self):
+        if self.headers.get('Origin') not in ('http://localhost:8765','http://127.0.0.1:8765'):
+            self.send_json(403,{'error':'Недопустимый источник запроса.'});return
+        try:
+            size=int(self.headers.get('Content-Length','0'))
+            if not 0<size<=3000000 or self.headers.get('Content-Type','').split(';')[0]!='application/json': raise AIError('Некорректный запрос эскиза.',400)
+            body=json.loads(self.rfile.read(size))
+            self.send_json(200,generate(body))
+        except AIError as error:self.send_json(error.status,{'error':str(error)})
+        except (ValueError,TypeError):self.send_json(400,{'error':'Не удалось прочитать параметры эскиза.'})
+        except (BrokenPipeError,ConnectionResetError):pass
+    def list_directory(self,path):
+        self.send_error(404);return None
     def save_ring_request(self):
         origin=self.headers.get('Origin')
         if origin and origin not in ('http://localhost:8765','http://127.0.0.1:8765'):
@@ -119,18 +137,7 @@ class Handler(SimpleHTTPRequestHandler):
             if body.get('consent') is not True: raise ValueError('Нужно согласие на использование данных для ответа.')
             design=body.get('design')
             if not isinstance(design,dict): raise ValueError('Не переданы параметры кольца.')
-            clean={'version':1}
-            for key,values in DESIGN_CHOICES.items():
-                if design.get(key) not in values: raise ValueError('Неизвестный параметр кольца: '+key)
-                clean[key]=design[key]
-            for key,minimum,maximum in [('width',1.5,5),('thickness',1.2,2.5),('ringSize',14,22),('gemSize',4,10),('headLift',0,2)]:
-                value=design.get(key)
-                if isinstance(value,bool) or not isinstance(value,(int,float)) or not minimum<=value<=maximum: raise ValueError('Некорректный размер кольца: '+key)
-                clean[key]=round(value,2)
-            if design.get('prongs') not in (4,6,8): raise ValueError('Некорректное число крапанов.')
-            clean['prongs']=design['prongs'];clean['sizeKnown']=design.get('sizeKnown') is not False
-            clean['engraving']=str(design.get('engraving',''))[:24]
-            if (clean['metal']=='platinum') != (clean['purity']=='950'): raise ValueError('Проба не соответствует металлу.')
+            clean=validate_design(design)
             preview=body.get('preview','')
             if not isinstance(preview,str) or not preview.startswith('data:image/png;base64,'): raise ValueError('Не передан PNG-макет.')
             image=base64.b64decode(preview.split(',',1)[1],validate=True)

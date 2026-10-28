@@ -1,0 +1,1 @@
+import{f as a,g as b,h as c,i as d,j as e,k as f,l as g,m as h}from"./chunk-JDPHJLP2.js";export{a as choices,b as defaults,g as designWarnings,f as dimensions,d as normalizeAccents,e as normalizeDesign,c as ranges,h as specification};

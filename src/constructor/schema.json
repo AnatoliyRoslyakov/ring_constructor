@@ -1,0 +1,21 @@
+{
+ "version":2,
+ "choices":{
+  "shank":{"classic":"Классическая","tapered":"Зауженная","split":"Раздвоенная","twist":"Переплетение","pave":"Дорожка камней","cathedral":"Соборная","bypass":"Обходящая","chevron":"Шеврон","double":"Двойная","rope":"Витая","wide":"Широкая","organic":"Органическая"},
+  "profile":{"round":"Округлый","flat":"Плоский","knife":"Острый гребень","comfort":"Комфорт","square":"Прямоугольный"},
+  "gem":{"diamond":"Бриллиант","lab":"Лабораторный бриллиант","sapphire":"Сапфир","ruby":"Рубин","emerald":"Изумруд","moissanite":"Муассанит","aquamarine":"Аквамарин","amethyst":"Аметист","citrine":"Цитрин","tourmaline":"Турмалин","garnet":"Гранат","morganite":"Морганит"},
+  "shape":{"round":"Круг","oval":"Овал","cushion":"Кушон","princess":"Принцесса","emerald":"Изумрудная","pear":"Груша","marquise":"Маркиз","asscher":"Ашер","radiant":"Радиант","heart":"Сердце","trillion":"Триллион","hexagon":"Гексагон"},
+  "setting":{"prongs":"Крапановая","bezel":"Глухая","halfbezel":"Полуободок","tulip":"Тюльпан","basket":"Корзинка","tension":"Открытая","compass":"Компас","crown":"Корона"},
+  "prongStyle":{"round":"Округлые","claw":"Коготки","v":"V-образные","double":"Двойные"},
+  "metal":{"white":"Белое золото","yellow":"Жёлтое золото","rose":"Розовое золото","platinum":"Платина"},
+  "finish":{"mirror":"Зеркальная","satin":"Сатиновая","brushed":"Брашированная","hammered":"Чеканка"},
+  "orientation":{"north":"Вдоль пальца","east":"Поперёк пальца"},
+  "halo":{"none":"Без ореола","single":"Один ореол","double":"Двойной ореол","hidden":"Скрытый ореол"},
+  "sideStones":{"none":"Без боковых камней","pair":"Трилогия","trio":"Ступенчатые плечи","cluster":"Россыпь"},
+  "sideShape":{"round":"Круг","pear":"Груша","princess":"Принцесса","trillion":"Триллион"},
+  "detail":{"none":"Чистая линия","milgrain":"Мильгрейн","gallery":"Ажурная галерея","rails":"Двойной кант"},
+  "scene":{"studio":"Студия","daylight":"Дневной свет","evening":"Вечер","velvet":"Бархат","stone":"На камне"}
+ },
+ "ranges":{"width":[1.5,7],"thickness":[1.2,3],"ringSize":[14,23],"gemSize":[4,12],"headLift":[0,3],"sideSize":[0.22,0.55],"haloSize":[0.65,1.5],"paveCoverage":[0.25,0.85],"taper":[0,0.65]},
+ "defaults":{"version":2,"shank":"classic","profile":"round","width":2.2,"thickness":1.6,"ringSize":16.5,"sizeKnown":true,"gem":"diamond","shape":"round","gemSize":6.5,"orientation":"north","setting":"prongs","prongs":6,"prongStyle":"round","headLift":0.5,"metal":"white","purity":"750","finish":"mirror","engraving":"","halo":"none","sideStones":"none","sideShape":"round","sideSize":0.35,"haloSize":0.9,"paveCoverage":0.55,"taper":0.43,"detail":"none","scene":"studio","stoneId":"","accents":[]}
+}
