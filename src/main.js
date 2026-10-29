@@ -44,7 +44,7 @@ function updateChapters(){
   const start=i===0?-.1:(chapterPoints[i-1]+chapterPoints[i])*.5,end=i===5?1.1:(chapterPoints[i]+chapterPoints[i+1])*.5;
   let alpha=Math.min(gsap.utils.clamp(0,1,(state.p-start+.025)/.05),gsap.utils.clamp(0,1,(end+.025-state.p)/.05));
   if(staticStory)alpha=index===i?1:0;
-  const distance=chapterPoints[i]-state.p,travel=Math.sign(distance)*Math.max(0,Math.abs(distance)-.012)*chapterScrollDistance/storyWeight*.48;
+  const distance=chapterPoints[i]-state.p,travel=distance*chapterScrollDistance/storyWeight*.48;
   const offset=staticStory?0:gsap.utils.clamp(-innerHeight*1.3,innerHeight*1.3,travel);
   const paint=chapterPaint[i],opacity=Number(alpha.toFixed(3)),y=Number(offset.toFixed(2)),visible=alpha>.001;
   if(paint.opacity!==opacity){el.style.opacity=String(opacity);paint.opacity=opacity;}
