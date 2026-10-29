@@ -76,7 +76,7 @@ function opacityGroup(group,a){group.visible=a>.003;group.scale.setScalar(Math.m
 
 export function createJewelScene(canvas,options={}){
  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,preserveDrawingBuffer:!!options.craft,powerPreference:'high-performance'});
- renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));renderer.setClearColor('#111e30',1);renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
+ renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));renderer.setClearColor('#000000',1);renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
  const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(34,1,.1,70);camera.position.set(0,.3,10);
  const pmrem=new THREE.PMREMGenerator(renderer);const studio=new RoomEnvironment();
  const panelMat=new THREE.MeshBasicMaterial({color:0xffffff});
@@ -131,19 +131,35 @@ export function createJewelScene(canvas,options={}){
  const craft=options.craftFactory?options.craftFactory({world,renderer,pmrem,gold,rawStone:roughStone,sourceRing:{band,girdle,claws,tips,shoulders,stem,funnel:base,metal}}):{update(){},ready:Promise.resolve(),environment:null};
  let dustSeed=72;const rnd=()=>{dustSeed=(dustSeed*16807)%2147483647;return dustSeed/2147483647};
  const dust=new THREE.Group();world.add(dust);for(let i=0;i<55;i++){const d=new THREE.Mesh(new THREE.IcosahedronGeometry(.012+rnd()*.009,0),new THREE.MeshBasicMaterial({color:0xc7bca7,transparent:true,opacity:.25+rnd()*.4}));d.position.set((rnd()-.5)*7,(rnd()-.5)*5,(rnd()-.5)*3);dust.add(d)}
- const reflection=createSatinReflection(world,{compact:!!options.center,exclude:[dust,...(craft.groundSurfaces||[])]});
+ const reflection=createSatinReflection(world,{compact:!!options.center||!!options.live,exclude:[dust,...(craft.groundSurfaces||[])]});
 
- let width=1,height=1,renderMode=false,inspect=false,spinX=0,spinY=0;let finish='mirror',stoneScale=1,view='ring',lightX=0,lightY=0;
- const sky=new THREE.Color('#111e30');
- function resize(w=innerWidth,h=innerHeight,film=false){width=w;height=h;renderMode=film;renderer.setPixelRatio(film?1:Math.min(devicePixelRatio,1.6));renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
- function render(p=0,time=0,pointer={x:0,y:0}){
-  const mobile=renderMode==='portrait'||(!renderMode&&width/height<.9);
+ let width=1,height=1,renderMode=false,inspect=false,spinX=0,spinY=0,centered=!!options.center,hero=false;let finish='mirror',stoneScale=1,view='ring',lightX=0,lightY=0;
+ const pickRay=new THREE.Raycaster(),pickPointer=new THREE.Vector2(),pickBox=new THREE.Box3(),pickCorner=new THREE.Vector3();
+ function containsPoint(x,y){
+  const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return false;
+  pickPointer.set((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2);pickRay.setFromCamera(pickPointer,camera);
+  if(pickRay.intersectObjects([band,cut,...claws],false).length)return true;
+  // The empty centre of a ring is also a natural place to start a drag.
+  pickBox.setFromObject(band).expandByObject(cut);let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+  for(let i=0;i<8;i++){pickCorner.set(i&1?pickBox.max.x:pickBox.min.x,i&2?pickBox.max.y:pickBox.min.y,i&4?pickBox.max.z:pickBox.min.z).project(camera);const px=(pickCorner.x+1)*rect.width/2+rect.left,py=(1-pickCorner.y)*rect.height/2+rect.top;left=Math.min(left,px);right=Math.max(right,px);top=Math.min(top,py);bottom=Math.max(bottom,py);}
+  return x>=left-16&&x<=right+16&&y>=top-16&&y<=bottom+16;
+ }
+ const sky=new THREE.Color('#000000');
+ function resize(w=innerWidth,h=innerHeight,film=false){
+  width=w;height=h;renderMode=film;renderer.setPixelRatio(film?1:Math.min(devicePixelRatio,options.live?1.5:1.6));renderer.setSize(w,h,false);camera.clearViewOffset();camera.aspect=w/h;
+  // Match object-fit: cover of the rendered film, including narrow desktop windows.
+  if(hero){const sw=w<=700?720:1600,sh=w<=700?1280:1000,cover=Math.max(w/sw,h/sh);camera.setViewOffset(sw,sh,(sw-w/cover)/2,(sh-h/cover)/2,w/cover,h/cover);}
+  camera.updateProjectionMatrix();
+ }
+ function render(p=0,time=0,pointer={x:0,y:0},motion=null){
+  const mobile=hero?width<=700:renderMode==='portrait'||(!renderMode&&width/height<.9);
   const q=inspect ? 0 : p;
   const rough=ease(.27,.39,q),melt=ease(.405,.475,q),moldIn=ease(.4,.49,q),moldOut=ease(.615,.69,q),ingotIn=ease(.63,.71,q),ingotOut=ease(.79,.86,q),oreIn=ease(.79,.92,q);
-  world.position.set(options.center?0:mobile?0:1.72,options.center?0:mobile?1.12:0,0);world.scale.setScalar(options.center?1.1:mobile?.98:1.16);
+  world.position.set(centered?0:mobile?0:1.72,centered?0:mobile?1.12:0,0);world.scale.setScalar(centered?1.1:mobile?.98:1.16);
+  world.scale.multiplyScalar(motion?.scale??1);world.position.y+=motion?.offsetY||0;world.position.x+=motion?.offsetX||0;
   const cameraDepth=mobile?10.9:10;const craftView=ease(.395,.48,q);camera.position.set(pointer.x*.14,mix(mobile?.45:.3+pointer.y*.10,2.65,craftView),cameraDepth-mix(0,.18,ease(0,.17,q)));camera.lookAt(0,mix(.05,-.12,craftView),0);
   const handoff=ease(.36,.46,q),turn=Math.min(q,.36);
-  const ringStart=new THREE.Euler(.48+Math.sin(turn*8)*.11+(inspect?spinX:0),-.45+turn*18.5+(inspect?spinY:0),-.27+turn*.7);
+  const ringStart=new THREE.Euler(.48+Math.sin(turn*8)*.11+(inspect?spinX:0)+(motion?.x||0),-.45+turn*18.5+(inspect?spinY:0)+(motion?.y||0),-.27+turn*.7+(motion?.z||0));
   const castYaw=.16+(q-.53)*.3;
   ring.rotation.set(mix(ringStart.x,0,handoff),mix(ringStart.y,Math.PI*2+castYaw,handoff),mix(ringStart.z,0,handoff));
   const castingScale=1+.055*ease(.44,.49,q)*(1-ease(.62,.65,q));
@@ -151,14 +167,15 @@ export function createJewelScene(canvas,options={}){
   const targetCenter=V(.04,-.60,.50).applyAxisAngle(V(0,1,0),castYaw).multiplyScalar(castingScale);
   const bandOffset=V(0,-.2,0).multiplyScalar(ringScale).applyEuler(ring.rotation);
   ring.position.copy(V(0,-ease(.2,.32,q)*.15,0).lerp(targetCenter.sub(bandOffset),handoff));
+  ring.position.y+=motion?.float||0;
   metal.roughness=finish==='satin'?.4:mix(.075,.69,rough);metal.clearcoat=1-rough*.8;metal.bumpMap=rough>.01?noise:null;metal.bumpScale=rough*.045;
   metal.color.set(0xe8e9e8).lerp(new THREE.Color(0x211e1a),ease(.405,.46,q));
-  basket.scale.setScalar(1);band.visible=basket.visible=!(options.center&&view==='macro');
+  basket.scale.setScalar(1);band.visible=basket.visible=!(centered&&view==='macro');
   const paveRelease=ease(.225,.325,q);pave.visible=q<.36&&band.visible;
   detailMetal.color.copy(metal.color);detailMetal.roughness=metal.roughness;detailMetal.clearcoat=metal.clearcoat;detailMetal.opacity=1-ease(.30,.36,q);detailMetal.depthWrite=detailMetal.opacity>.98;
   if(pave.visible){pavePlacements.forEach(({position,rotation,size,normal},i)=>{dummy.position.copy(position).addScaledVector(normal,paveRelease*.18);dummy.quaternion.copy(rotation);dummy.scale.setScalar(Math.max(.0001,size*(1-paveRelease)));dummy.updateMatrix();paveStones.setMatrixAt(i,dummy.matrix);});paveStones.instanceMatrix.needsUpdate=true;paveStones.visible=paveRelease<.999;}
-  const gemTurn=Math.min(q,.36),gemEuler=new THREE.Euler(.48+Math.sin(gemTurn*8)*.11+(inspect?spinX:0),-.45+gemTurn*18.5+(inspect?spinY:0),-.27+gemTurn*.7);
-  diamond.position.copy(V(0,1.62+ease(.205,.34,gemTurn)*.85,0).applyEuler(gemEuler)).add(V(0,-ease(.2,.32,gemTurn)*.15,0));
+  const gemTurn=Math.min(q,.36),gemEuler=new THREE.Euler(.48+Math.sin(gemTurn*8)*.11+(inspect?spinX:0)+(motion?.x||0),-.45+gemTurn*18.5+(inspect?spinY:0)+(motion?.y||0),-.27+gemTurn*.7+(motion?.z||0));
+  diamond.position.copy(V(0,1.62+ease(.205,.34,gemTurn)*.85+(motion?.lift||0),0).applyEuler(gemEuler)).add(V(0,-ease(.2,.32,gemTurn)*.15+(motion?.float||0),0));
   diamond.quaternion.setFromEuler(gemEuler);diamond.rotateY(gemTurn*5);
   if(q>.36)diamond.position.lerp(V(1.20,-1.02,.62),ease(.365,.49,q));
   diamond.scale.setScalar(stoneScale*(1-ease(.365,.425,q)));
@@ -167,10 +184,12 @@ export function createJewelScene(canvas,options={}){
   craft.update(q,mobile);
   dust.rotation.y=q*.5;dust.visible=q>.14;
   const floor=mix(mix(-1.65,-2.30,ease(.23,.34,q)),-1.355,ease(.36,.47,q));
-  reflection.position.y=mix(floor-.47*ease(.69,.73,q)*(1-ease(.825,.9,q)),-1.305,oreIn);reflection.material.uniforms.uStrength.value=mix(.23,.14,oreIn)*(1-ease(.865,.925,q));reflection.visible=!(options.center&&view==='macro');
+  reflection.position.y=mix(floor-.47*ease(.69,.73,q)*(1-ease(.825,.9,q)),-1.305,oreIn);reflection.material.uniforms.uStrength.value=mix(.23,.14,oreIn)*(1-ease(.865,.925,q));reflection.visible=!(centered&&view==='macro');
   key.intensity=mix(2,1.45,oreIn);hemi.intensity=mix(.65,.43,oreIn);rim.intensity=mix(1,.5,oreIn);fill.intensity=mix(.45,.25,oreIn);key.shadow.normalBias=mix(.03,.009,oreIn);
-  sky.set('#111e30');sky.lerp(new THREE.Color('#0e1c2d'),oreIn*.7);renderer.setClearColor(sky);scene.environment=q>.41&&craft.environment?craft.environment:env;scene.environmentIntensity=q>.41?.75:1.15;
-  if(options.center){
+  sky.set('#000000');sky.lerp(new THREE.Color('#000000'),oreIn*.7);renderer.setClearColor(sky);scene.environment=q>.41&&craft.environment?craft.environment:env;scene.environmentIntensity=q>.41?.75:1.15;
+  scene.environmentRotation.y=motion?.light||0;
+  key.position.set(-3,6,5);brilliant.uniforms.lightStrength.value=0;
+  if(centered){
    if(view==='macro'){
     world.updateMatrixWorld(true);const target=diamond.getWorldPosition(new THREE.Vector3());
     const distance=Math.max(3.5,stoneScale*.82/(Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*Math.min(camera.aspect,1)*.80));
@@ -183,5 +202,5 @@ export function createJewelScene(canvas,options={}){
   renderer.render(scene,camera);
  }
  resize();
- return {renderer,resize,render,ready:craft.ready,setView(value){view=value},setLight(x,y=0){lightX=x;lightY=y},setInspect(v){inspect=v;spinX=0;spinY=0},rotate(dx,dy){spinY+=dx*.008;spinX=clamp(spinX+dy*.006,-.75,.75)},getHotspots(){world.updateMatrixWorld(true);return [[0,.22,0],[.46,.12,.15],[.61,0,0]].map(a=>{const point=cut.localToWorld(new THREE.Vector3(...a)).project(camera);return {x:(point.x+1)*width/2,y:(1-point.y)*height/2,visible:point.z<1&&Math.abs(point.x)<.95&&Math.abs(point.y)<.95}})},setDesign(value){finish=value.finish;stoneScale={delicate:.78,classic:1,bold:1.2}[value.stone]||1},dispose(){reflection.dispose();reflection.geometry.dispose();renderer.dispose();pmrem.dispose();}};
+ return {renderer,resize,render,ready:craft.ready,setPresentation(value){hero=value==='hero';centered=!hero;view='ring';resize(width,height)},containsPoint,setView(value){view=value},setLight(x,y=0){lightX=x;lightY=y},setInspect(v){inspect=v;spinX=0;spinY=0},rotate(dx,dy){spinY+=dx*.008;spinX=clamp(spinX+dy*.006,-.75,.75)},getHotspots(){world.updateMatrixWorld(true);return [[0,.22,0],[.46,.12,.15],[.61,0,0]].map(a=>{const point=cut.localToWorld(new THREE.Vector3(...a)).project(camera);return {x:(point.x+1)*width/2,y:(1-point.y)*height/2,visible:point.z<1&&Math.abs(point.x)<.95&&Math.abs(point.y)<.95}})},setDesign(value){finish=value.finish;stoneScale={delicate:.78,classic:1,bold:1.2}[value.stone]||1},dispose(){reflection.dispose();reflection.geometry.dispose();renderer.dispose();pmrem.dispose();}};
 }

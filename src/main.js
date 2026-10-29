@@ -20,6 +20,7 @@ const finalGlint=$('.final-gem-glint');
 const pointer={x:0,y:0},state={p:0};
 let viewer,viewerPromise,customizer,customizerPromise,studio,hologram,holoPromise,holoReveal=reduced?1:0,inspect=false,chapterScrollDistance=0,lastIndex=-1,filmReady=false,desiredFrame=0,mediaProfile='',resizeTimer,navigationUsed=false,glintOpacity=-1;
 let design={finish:'mirror',stone:'classic'};
+let heroLoading=false,displayedFilmProgress=0;
 try{design={...design,...JSON.parse(localStorage.getItem('origin-design')||'{}')}}catch{}
 const interactions=setupInteractions({reduced});
 const storyParticles=setupStoryParticles(stage,{disabled:staticStory||studioMode});
@@ -77,17 +78,19 @@ function seekFilm(){if(!filmReady||film.seeking||inspect||document.hidden)return
 function loadFilm(){
  if(studioMode||staticStory)return;
  const profile=mobileMedia.matches?'portrait':innerWidth<=1050?'compact':'desktop';if(profile===mediaProfile)return;
- mediaProfile=profile;filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));
+ mediaProfile=profile;filmReady=false;displayedFilmProgress=0;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));
  // Increment the media version whenever films are regenerated: these URLs are cached immutably.
  film.src=`assets/journey${profile==='portrait'?'-portrait':profile==='compact'?'-compact':''}.mp4?v=${FILM_VERSION}`;film.load();
 }
 film.addEventListener('loadeddata',()=>{filmReady=true;const target=desiredFrame/FILM_FPS;if(Math.abs(film.currentTime-target)>.5/FILM_FPS){film.addEventListener('seeked',()=>stage.classList.add('film-ready'),{once:true});seekFilm();}else stage.classList.add('film-ready');});
 film.addEventListener('error',()=>{filmReady=false;stage.classList.remove('film-ready');setPoster(Math.max(0,lastIndex));});
-film.addEventListener('seeked',()=>{seekFilm();updateFinalGlint();});
+film.addEventListener('seeked',()=>{if(!film.requestVideoFrameCallback)displayedFilmProgress=film.currentTime*FILM_FPS/FILM_LAST_FRAME;seekFilm();updateFinalGlint();});
+// Use the frame actually presented by the decoder during the 3D-to-film blend.
+if(film.requestVideoFrameCallback){const presented=(_now,metadata)=>{displayedFilmProgress=metadata.mediaTime*FILM_FPS/FILM_LAST_FRAME;film.requestVideoFrameCallback(presented)};film.requestVideoFrameCallback(presented);}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)seekFilm();});
-async function ensureViewer(){if(!viewerPromise)viewerPromise=import('./viewer.js').then(({createViewer})=>{viewer=createViewer(canvas);viewer.setDesign(design);return viewer;}).catch(error=>{viewerPromise=null;console.warn('ORIGIN viewer unavailable:',error);$('.preview-status').textContent='3D-просмотр недоступен. Ваш эскиз можно сохранить.';return null;});return viewerPromise;}
+async function ensureViewer(){if(!viewerPromise)viewerPromise=import('./viewer.js').then(({createViewer})=>{viewer=createViewer(canvas,{reduced});viewer.setDesign(design);return viewer;}).catch(error=>{viewerPromise=null;console.warn('ORIGIN viewer unavailable:',error);$('.preview-status').textContent='3D-просмотр недоступен. Ваш эскиз можно сохранить.';return null;});return viewerPromise;}
 async function setInspect(value){
- if(!value){inspect=false;stage.classList.remove('inspecting');sticky.classList.remove('is-inspecting');viewToggle.setAttribute('aria-pressed','false');viewToggle.querySelector('span').textContent='Рассмотреть в 3D';$('.chapter-stack').inert=false;$('.chapter-stack').removeAttribute('aria-hidden');if(!dialog.open)viewer?.setActive(false);lenis.start();return;}
+ if(!value){inspect=false;stage.classList.remove('inspecting');sticky.classList.remove('is-inspecting');viewToggle.setAttribute('aria-pressed','false');viewToggle.querySelector('span').textContent='Рассмотреть в 3D';$('.chapter-stack').inert=false;$('.chapter-stack').removeAttribute('aria-hidden');if(!staticStory&&!studioMode)viewer?.mountHero(stage);else viewer?.setActive(false);lenis.start();return;}
  closeMenu();viewToggle.disabled=true;viewToggle.querySelector('span').textContent='Загружаем кольцо…';const instance=await ensureViewer();viewToggle.disabled=false;
  if(!instance){viewToggle.querySelector('span').textContent='3D недоступно';return;}
  inspect=true;instance.mount(stage);instance.setDesign(design);stage.classList.add('inspecting');sticky.classList.add('is-inspecting');viewToggle.setAttribute('aria-pressed','true');viewToggle.querySelector('span').textContent='Вернуться к истории';$('.chapter-stack').inert=true;$('.chapter-stack').setAttribute('aria-hidden','true');lenis.stop();
@@ -116,7 +119,16 @@ if(!reduced){
 }
 const holoObserver=new IntersectionObserver(entries=>{if(!entries.some(e=>e.isIntersecting)||holoPromise)return;holoPromise=import('./hologram.js').then(({setupHologram})=>{hologram=setupHologram($('.holographic'),{reduced});hologram.setReveal(holoReveal);holoObserver.disconnect();}).catch(error=>{console.warn('ORIGIN light study unavailable:',error);$('.holographic').classList.add('holo-fallback');});},{rootMargin:'250px'});holoObserver.observe($('.holographic'));
 if(studioMode){document.body.classList.add('studio-mode');import('./studio.js').then(async({setupStudio,setupPromoSprites})=>{studio=await (promoMode?setupPromoSprites:setupStudio)(canvas);});}
-function frame(time){if(document.hidden)return;lenis.raf(time);storyParticles.update(time,state.p,pointer,!inspect&&!dialog.open);hologram?.update(time);if(inspect)viewer?.tick(time);if(dialog.open)customizer?.tick(time);if(studio)studio.render(state.p,time/1000,pointer);}
+function frame(time){
+ if(document.hidden)return;
+ lenis.raf(time);storyParticles.update(time,state.p,pointer,!inspect&&!dialog.open);hologram?.update(time);
+ if(inspect)viewer?.tick(time);
+ else if(!staticStory&&!studioMode){
+  if(!viewer&&!heroLoading&&state.p<.17){heroLoading=true;ensureViewer().then(instance=>{if(instance&&!inspect)instance.mountHero(stage)});}
+  viewer?.tick(time,{progress:state.p,filmProgress:displayedFilmProgress,filmReady:filmReady&&stage.classList.contains('film-ready'),suspended:dialog.open||!menu.hidden});
+ }
+ if(dialog.open)customizer?.tick(time);if(studio)studio.render(state.p,time/1000,pointer);
+}
 gsap.ticker.lagSmoothing(0);gsap.ticker.add(time=>frame(time*1000));
 let lastWidth=innerWidth;
 addEventListener('resize',()=>{storyParticles.resize();viewer?.resize();customizer?.resize();studio?.resize();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{const widthChanged=lastWidth!==innerWidth;lastWidth=innerWidth;if(widthChanged||!mobileMedia.matches){lenis.resize();ScrollTrigger.refresh();updateHeader();}if(widthChanged)loadFilm();},180);});

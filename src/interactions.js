@@ -32,8 +32,8 @@ export function setupInteractions({reduced=false}={}){
    if(!shown){gsap.set(cursor,{x:event.clientX,y:event.clientY,opacity:1});shown=true;lastX=event.clientX;}
    document.body.classList.add('jewel-cursor-active');cursor.classList.remove('is-hidden');xTo(event.clientX);yTo(event.clientY);
    rotate(-15+gsap.utils.clamp(-25,25,(event.clientX-lastX)*.8));lastX=event.clientX;
-   const interactive=event.target.closest('a,button,summary,label,input,.holo-view,.stage.inspecting canvas');
-   const draggable=event.target.closest('.holo-view,.stage.inspecting canvas');cursor.classList.toggle('is-interactive',!!interactive);cursor.classList.toggle('is-drag',!!draggable);caption.textContent=draggable?'Повернуть':'';
+   const interactive=event.target.closest('a,button,summary,label,input,.holo-view,.stage.inspecting canvas,.stage.hero-interactive #jewel-canvas');
+   const draggable=event.target.closest('.holo-view,.stage.inspecting canvas,.stage.hero-interactive #jewel-canvas');cursor.classList.toggle('is-interactive',!!interactive);cursor.classList.toggle('is-drag',!!draggable);caption.textContent=draggable?'Повернуть':'';
   },{passive:true});
   document.addEventListener('pointerdown',()=>{cursor.classList.add('is-down');gsap.fromTo(cursor.querySelector('.cursor-glint'),{scale:.4,opacity:1},{scale:1.8,opacity:.25,duration:.55,ease:'power2.out'});});
   const release=()=>cursor.classList.remove('is-down');document.addEventListener('pointerup',release);document.addEventListener('pointercancel',release);
