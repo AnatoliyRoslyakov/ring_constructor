@@ -79,7 +79,7 @@ function bezelGeometry(points,y,wall){
 }
 export function createRingStudio(canvas,{reduced=false,onAutoChange=()=>{}}={}){
  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
- renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<700?1.3:1.6));renderer.setClearColor('#111e30');renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;
+ renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<700?1.3:1.6));renderer.setClearColor('#000000');renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;
  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(32,1,.1,250);camera.position.set(31,23,41);
  const env=createDiamondEnvironment(renderer),pmrem=new THREE.PMREMGenerator(renderer),lighting=pmrem.fromCubemap(env.texture);scene.environment=lighting.texture;scene.environmentIntensity=1.3;
  scene.add(new THREE.HemisphereLight(0xffffff,0x77849a,1.1));const key=new THREE.DirectionalLight(0xffffff,3);key.position.set(-12,30,28);scene.add(key);const rim=new THREE.DirectionalLight(0xc5d8ff,2);rim.position.set(25,12,-20);scene.add(rim);

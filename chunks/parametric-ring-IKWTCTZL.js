@@ -1,0 +1,1 @@
+import{a}from"./chunk-UC6P6YLX.js";import"./chunk-E4OSAJ5V.js";import"./chunk-GL2PZYTX.js";import"./chunk-AZSNFRF3.js";export{a as createRingStudio};
