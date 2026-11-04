@@ -2,4 +2,4 @@
 export const FILM_FRAMES=864;
 export const FILM_FPS=48;
 export const FILM_LAST_FRAME=FILM_FRAMES-1;
-export const FILM_VERSION='media-27-black-48';
+export const FILM_VERSION='media-30-smooth-cushion-48';

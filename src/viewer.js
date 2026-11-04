@@ -5,6 +5,7 @@ const smooth=(a,b,v)=>{const t=clamp((v-a)/(b-a),0,1);return t*t*(3-2*t)};
 
 export function createViewer(canvas,{reduced=false}={}){
  const scene=createJewelScene(canvas,{center:true,live:true});scene.setInspect(true);
+ let modelReady=false;scene.ready.then(()=>{modelReady=true;invalidate();}).catch(error=>console.warn('ORIGIN ring unavailable:',error));
  const controls=document.createElement('div');controls.className='viewer-ui';
  controls.innerHTML=`<div class="viewer-toolbar" role="group" aria-label="Масштаб просмотра"><button data-view="ring" aria-pressed="true">Кольцо</button><button data-view="macro" aria-pressed="false">Макро граней</button></div><label class="viewer-light">Направление света<input type="range" min="-100" max="100" value="0" aria-label="Направление света"><span>−<i></i>+</span></label><div class="viewer-hotspots" hidden><button aria-label="Площадка бриллианта" data-spot="0">1</button><button aria-label="Корона бриллианта" data-spot="1">2</button><button aria-label="Рундист бриллианта" data-spot="2">3</button></div><p class="viewer-explanation" role="status" hidden></p><span class="viewer-instruction">Поверните кольцо мышью или стрелками</span>`;
  const descriptions=[['Площадка','Верхняя грань открывает взгляд внутрь камня. Перемещайте свет, чтобы увидеть смену отражений.'],['Корона','Наклонные грани над рундистом направляют свет и раскрывают его игру.'],['Рундист','Тонкий пояс соединяет корону и павильон. За него камень удерживается в оправе.']];
@@ -92,7 +93,7 @@ export function createViewer(canvas,{reduced=false}={}){
   setDesign(value){design={...value};if(mode!=='hero')scene.setDesign(design);invalidate();},
   resize,
   tick(time,story){
-   if(!active||contextLost||document.hidden||!host?.isConnected)return;
+   if(!modelReady||!active||contextLost||document.hidden||!host?.isConnected)return;
    if(mode==='hero'){
     const p=story?.progress||0;
     if(story?.suspended||p>=.17){showHero(0,false);lastTime=0;entrance=0;resetOrbit();return;}

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 
 // Rays are traced in gem-local space; reflections stay on two world-space receivers.
-export function createGemCaustics(scene,geometry,{reduced=false}={}){
+export function createGemCaustics(scene,geometry,{reduced=false,ior=2.417}={}){
  const floorY=-1.38,wallZ=-2.65;
  const rayGeometry=geometry.clone(),bvh=new MeshBVH(rayGeometry,{targetLeafSize:4});
  const positions=geometry.getAttribute('position'),facets=[];
@@ -149,12 +149,12 @@ export function createGemCaustics(scene,geometry,{reduced=false}={}){
   for(const facet of facets){
    entry.copy(facet.center).applyMatrix4(gem.matrixWorld);incident.subVectors(entry,light).normalize().transformDirection(inverse);
    const facing=-incident.dot(facet.normal);if(facing<.04)continue;
-   if(!refract(direction,incident,facet.normal,1/2.417))continue;
+   if(!refract(direction,incident,facet.normal,1/ior))continue;
    ray.origin.copy(facet.center).addScaledVector(direction,.0015);ray.direction.copy(direction);let escaped=false;
    for(let bounce=0;bounce<5;bounce++){
     const hit=bvh.raycastFirst(ray,THREE.BackSide);if(!hit)break;
     normal.copy(hit.face.normal);if(normal.dot(ray.direction)>0)normal.negate();
-    if(refract(direction,ray.direction,normal,2.417)){exit.copy(hit.point);escaped=true;break;}
+    if(refract(direction,ray.direction,normal,ior)){exit.copy(hit.point);escaped=true;break;}
     ray.direction.reflect(normal).normalize();ray.origin.copy(hit.point).addScaledVector(ray.direction,.0015);
    }
    if(!escaped)continue;

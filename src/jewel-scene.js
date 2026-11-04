@@ -3,34 +3,15 @@ import { refractionMaterial } from './diamond-material.js';
 import { diamondGeometry, createDiamondEnvironment } from './diamond.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { cushionGeometry, createReferenceSetting, bandSection } from './reference-ring.js';
 import { createSatinReflection } from './satin-reflection.js';
+import { loadRingSurface } from './ring-surface-loader.js';
 
 const clamp=THREE.MathUtils.clamp;
 const mix=THREE.MathUtils.lerp;
 const ease=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
 const V=(x,y,z)=>new THREE.Vector3(x,y,z);
 
-function bandSection(a){
- const shoulder=Math.pow(Math.max(0,Math.sin(a)),6);
- return {thickness:.092+shoulder*.032,width:.148+.028*Math.sin(a)**2-.058*shoulder};
-}
-function bandGeometry(){
- const positions=[],indices=[],N=256,M=32;
- for(let i=0;i<=N;i++){const a=i/N*Math.PI*2,{thickness,width}=bandSection(a);for(let j=0;j<=M;j++){const b=j/M*Math.PI*2,c=Math.cos(b),s=Math.sin(b);const radial=Math.sign(c)*Math.pow(Math.abs(c),.72)*thickness;const r=1.12+radial;positions.push(Math.cos(a)*r,Math.sin(a)*r-.2,Math.sign(s)*Math.pow(Math.abs(s),.78)*width);}}
- for(let i=0;i<N;i++)for(let j=0;j<M;j++){const a=i*(M+1)+j,b=a+M+1;indices.push(a,b,a+1,b,b+1,a+1)}
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setIndex(indices);g.computeVertexNormals();
- // Match duplicate seam normals to keep the polished surface continuous.
- const normals=g.attributes.normal;
- const join=(a,b)=>{const n=V(normals.getX(a)+normals.getX(b),normals.getY(a)+normals.getY(b),normals.getZ(a)+normals.getZ(b)).normalize();normals.setXYZ(a,n.x,n.y,n.z);normals.setXYZ(b,n.x,n.y,n.z);};
- for(let i=0;i<=N;i++)join(i*(M+1),i*(M+1)+M);
- for(let j=0;j<=M;j++)join(j,N*(M+1)+j);
- g.userData.bandSegments={N,M};return g;
-}
-function tube(points,radius,material,taper=1){
- const curve=new THREE.CatmullRomCurve3(points),N=64,M=16,geometry=new THREE.TubeGeometry(curve,N,radius,M,false);
- if(taper!==1){const p=geometry.attributes.position;for(let i=0;i<=N;i++){const center=curve.getPointAt(i/N),scale=mix(1,taper,ease(.58,1,i/N));for(let j=0;j<=M;j++){const n=i*(M+1)+j;p.setXYZ(n,center.x+(p.getX(n)-center.x)*scale,center.y+(p.getY(n)-center.y)*scale,center.z+(p.getZ(n)-center.z)*scale);}}geometry.computeVertexNormals();}
- return new THREE.Mesh(geometry,material);
-}
 function roughGeometry(radius,detail,seed=1){const g=new THREE.IcosahedronGeometry(radius,detail);const p=g.attributes.position;for(let i=0;i<p.count;i++){let x=p.getX(i),y=p.getY(i),z=p.getZ(i);const f=1+.12*Math.sin(x*8.1+seed)*Math.cos(y*6.7+z*3.2)+.045*Math.sin(z*18+x*7);p.setXYZ(i,x*f,y*f,z*f)}g.computeVertexNormals();return g}
 function uncutCrystalGeometry(){
  const g=new THREE.OctahedronGeometry(.91,5),p=g.attributes.position;
@@ -91,43 +72,57 @@ export function createJewelScene(canvas,options={}){
  const diamondCore=new THREE.MeshPhysicalMaterial({color:0xfafcff,metalness:.42,roughness:.018,envMapIntensity:2.9,transparent:true,opacity:.52,side:THREE.BackSide});
  const roughGlass=new THREE.MeshPhysicalMaterial({color:0xe7e3d7,metalness:.03,roughness:.23,transmission:.6,thickness:1,ior:2.417,envMapIntensity:2,flatShading:true});
  const noise=noiseTexture();const rockMat=new THREE.MeshStandardMaterial({color:0x827666,roughness:1,envMapIntensity:.055,bumpMap:noise,bumpScale:.07,flatShading:false});
- const world=new THREE.Group();scene.add(world);const ring=new THREE.Group();world.add(ring);const band=new THREE.Mesh(bandGeometry(),metal);ring.add(band);band.castShadow=true;
- const basket=new THREE.Group(),claws=[],tips=[],shoulders=[];ring.add(basket);
- const diamondShape=diamondGeometry(),stoneSurface=new THREE.Mesh(diamondShape,metal),seatRay=new THREE.Raycaster();
- const girdle=new THREE.Mesh(new THREE.TorusGeometry(.43,.027,16,96),metal);girdle.rotation.x=Math.PI/2;girdle.position.y=1.38;basket.add(girdle);
- for(let i=0;i<6;i++){
-  const a=i/6*Math.PI*2+Math.PI/6,c=Math.cos(a),s=Math.sin(a);
-  seatRay.set(V(c*2,.067,s*2),V(-c,0,-s));
-  const contact=seatRay.intersectObject(stoneSurface,false)[0];
-  const end=contact.point.clone().addScaledVector(contact.face.normal,.010);end.y+=1.62;
-  // Six short petals grow from the gallery and fold over the actual crown surface.
-  const points=[V(c*.43,1.38,s*.43),V(c*.535,1.48,s*.535),V(c*.657,1.596,s*.657),V(c*.658,1.642,s*.658),end];
-  const claw=tube(points,.030,metal,.46);claw.castShadow=true;basket.add(claw);claws.push(claw);
-  const cap=new THREE.SphereGeometry(.0145,12,12);cap.scale(1,.70,1.16);cap.rotateY(Math.PI/2-a);
-  const tip=new THREE.Mesh(cap,metal);tip.position.copy(end);basket.add(tip);tips.push(tip);
- }
- // Attach beyond the last pavé stone, inside the unpaved crown of the shank.
- for(const side of [-1,1]){const shoulder=tube([V(side*.285,.970,0),V(side*.306,1.105,0),V(side*.375,1.270,0),V(side*.43,1.38,0)],.044,metal,.76);shoulder.castShadow=true;basket.add(shoulder);shoulders.push(shoulder);}
+ const world=new THREE.Group();scene.add(world);
+ const {ring,band,basket,girdle,claws,tips,shoulders,galleryAt,shoulderCurve,shoulderWidth}=createReferenceSetting(metal);world.add(ring);
+ const diamondShape=cushionGeometry(),paveShape=diamondGeometry();
+ const smoothMetal=new THREE.Mesh(new THREE.BufferGeometry(),metal);smoothMetal.castShadow=true;ring.add(smoothMetal);
+ let surfaceReady=false;
+ const surfacePromise=loadRingSurface().then(geometry=>{smoothMetal.geometry.dispose();smoothMetal.geometry=geometry;smoothMetal.updateMorphTargets();surfaceReady=true;});
  const diamond=new THREE.Group();world.add(diamond);diamond.position.y=1.62;const gemTarget=createDiamondEnvironment(renderer);
- const brilliant=refractionMaterial(diamondShape,gemTarget.texture);brilliant.uniforms.aberrationStrength.value=.008;const cut=new THREE.Mesh(diamondShape,brilliant);diamond.add(cut);
+ const brilliant=refractionMaterial(diamondShape,gemTarget.texture);brilliant.uniforms.aberrationStrength.value=.004;brilliant.uniforms.ior.value=1.76;brilliant.uniforms.color.value.set('#c90059');brilliant.uniforms.fresnel.value=.22;const cut=new THREE.Mesh(diamondShape,brilliant);diamond.add(cut);
  cut.onBeforeRender=(activeRenderer,_scene,activeCamera)=>{const target=activeRenderer.getRenderTarget();activeCamera.projectionMatrixInverse.copy(activeCamera.projectionMatrix).invert();brilliant.uniforms.viewMatrixInverse.value.copy(activeCamera.matrixWorld);brilliant.uniforms.projectionMatrixInverse.value.copy(activeCamera.projectionMatrixInverse);brilliant.uniforms.resolution.value.set(target?target.width:activeRenderer.domElement.width,target?target.height:activeRenderer.domElement.height);};
  // Graduated bead-set pavé. Shared geometry and instancing keep the live model light.
  const pave=new THREE.Group();ring.add(pave);
- const paveMaterial=refractionMaterial(diamondShape,gemTarget.texture);paveMaterial.uniforms.bounces.value=3;paveMaterial.uniforms.aberrationStrength.value=.009;
+ const paveMaterial=refractionMaterial(paveShape,gemTarget.texture);paveMaterial.uniforms.bounces.value=3;paveMaterial.uniforms.aberrationStrength.value=.009;
  const detailMetal=metal.clone();detailMetal.transparent=true;
- const paveStones=new THREE.InstancedMesh(diamondShape,paveMaterial,16),seats=new THREE.InstancedMesh(new THREE.TorusGeometry(.65,.052,8,32).rotateX(Math.PI/2),detailMetal,16),beads=new THREE.InstancedMesh(new THREE.SphereGeometry(.0105,10,8),detailMetal,64);
- pave.add(paveStones,seats,beads);const pavePlacements=[],dummy=new THREE.Object3D();
- for(const side of [-1,1])for(let i=0;i<8;i++){
-  const a=side>0?.15+i*.147:Math.PI-(.15+i*.147),size=.109+i*.0023,{thickness}=bandSection(a),r=1.12+thickness+.009;
-  const position=V(Math.cos(a)*r,Math.sin(a)*r-.2,0),rotation=new THREE.Quaternion().setFromAxisAngle(V(0,0,1),a-Math.PI/2),index=pavePlacements.length;
-  pavePlacements.push({position,rotation,size,normal:V(Math.cos(a),Math.sin(a),0)});
+ const pavePlacements=[],dummy=new THREE.Object3D();
+ for(const side of [-1,1])for(let i=0;i<8;i++)for(let row=-1;row<=1;row++){
+  const a=side>0?.23+i*.106:Math.PI-(.23+i*.106),size=row===0?.092:.067,{thickness}=bandSection(a),r=1.12+thickness+.006-Math.abs(row)*.011;
+  pavePlacements.push({position:V(Math.cos(a)*r,Math.sin(a)*r-.2,row*.103),rotation:new THREE.Quaternion().setFromAxisAngle(V(0,0,1),a-Math.PI/2),size,normal:V(Math.cos(a),Math.sin(a),0)});
+ }
+ // Pavé follows the crescents, stopping below the polished claw tips.
+ for(let arc=0;arc<4;arc++){
+  const start=Math.PI/4+arc*Math.PI/2;
+  const curve=new THREE.CatmullRomCurve3(Array.from({length:65},(_,i)=>galleryAt(start+i/64*Math.PI/2).p));
+  for(let row=-1;row<=1;row++)for(let i=0;i<23;i++){
+   const u=.10+(i+(row===0?0:.35))/23*.79,center=curve.getPointAt(u);
+   // Invert the cushion outline to recover the surface frame after arc-length sampling.
+   const a=Math.atan2(Math.sign(center.z)*Math.pow(Math.abs(center.z/.73),1/.62),Math.sign(center.x)*Math.pow(Math.abs(center.x/.96),1/.62));
+   const {n,height,rise}=galleryAt(a),offset=row*height*.57;
+   const p=center.clone().addScaledVector(n,.064*Math.sqrt(1-(offset/height)**2)+.003);p.y+=offset;
+   pavePlacements.push({position:p,rotation:new THREE.Quaternion().setFromUnitVectors(V(0,1,0),n),size:mix(.062,.043,rise),normal:n});
+  }
+ }
+ for(const side of [-1,1]){
+  const curve=new THREE.CatmullRomCurve3(shoulderCurve(side));
+  for(let i=0;i<7;i++)for(let row=-1;row<=1;row++){
+   const u=.10+i*.12,p=curve.getPointAt(u),t=curve.getTangentAt(u),n=V(side*t.y,-side*t.x,0).normalize(),width=shoulderWidth(u);
+   const across=row*.54,radial=Math.sqrt(1-Math.pow(Math.abs(across),2/.78));
+   p.addScaledVector(n,.115*radial+.004);p.z=across*width;
+   pavePlacements.push({position:p,rotation:new THREE.Quaternion().setFromUnitVectors(V(0,1,0),n),size:row===0?.086:.068,normal:n});
+  }
+ }
+ const count=pavePlacements.length;
+ const paveStones=new THREE.InstancedMesh(paveShape,paveMaterial,count),seats=new THREE.InstancedMesh(new THREE.TorusGeometry(.65,.052,8,32).rotateX(Math.PI/2),detailMetal,count),beads=new THREE.InstancedMesh(new THREE.SphereGeometry(.008,8,6),detailMetal,count*4);
+ pave.add(paveStones,seats,beads);
+ pavePlacements.forEach(({position,rotation,size},index)=>{
   dummy.position.copy(position);dummy.quaternion.copy(rotation);dummy.scale.setScalar(size);dummy.updateMatrix();seats.setMatrixAt(index,dummy.matrix);
   for(let j=0;j<4;j++){const angle=Math.PI/4+j*Math.PI/2;dummy.position.copy(V(Math.cos(angle)*size*.69,.008,Math.sin(angle)*size*.69).applyQuaternion(rotation).add(position));dummy.scale.set(1,1.18,1);dummy.updateMatrix();beads.setMatrixAt(index*4+j,dummy.matrix);}
- }
+ });
  paveStones.frustumCulled=false;
  paveStones.onBeforeRender=(activeRenderer,_scene,activeCamera)=>{const target=activeRenderer.getRenderTarget();paveMaterial.uniforms.viewMatrixInverse.value.copy(activeCamera.matrixWorld);paveMaterial.uniforms.projectionMatrixInverse.value.copy(activeCamera.projectionMatrixInverse);paveMaterial.uniforms.resolution.value.set(target?target.width:activeRenderer.domElement.width,target?target.height:activeRenderer.domElement.height);};
  const sprue=new THREE.Group();ring.add(sprue);const stem=new THREE.Mesh(new THREE.CylinderGeometry(.09,.15,.8,16,80),metal);stem.position.set(0,-1.7,0);sprue.add(stem);const base=new THREE.Mesh(new THREE.CylinderGeometry(.000001,.27,.35,24),metal);base.position.y=-2.23;sprue.add(base);
- const rawGeometry=uncutCrystalGeometry();const roughStone=new THREE.Mesh(rawGeometry,rawCrystalMaterial());roughStone.castShadow=true;roughStone.receiveShadow=true;world.add(roughStone);
+ const rawGeometry=uncutCrystalGeometry();const roughStone=new THREE.Mesh(rawGeometry,rawCrystalMaterial());roughStone.material.color.set(0xb82765);roughStone.material.attenuationColor.set(0xd73583);roughStone.material.ior=1.76;roughStone.castShadow=true;roughStone.receiveShadow=true;world.add(roughStone);
  const craft=options.craftFactory?options.craftFactory({world,renderer,pmrem,gold,rawStone:roughStone,sourceRing:{band,girdle,claws,tips,shoulders,stem,funnel:base,metal}}):{update(){},ready:Promise.resolve(),environment:null};
  let dustSeed=72;const rnd=()=>{dustSeed=(dustSeed*16807)%2147483647;return dustSeed/2147483647};
  const dust=new THREE.Group();world.add(dust);for(let i=0;i<55;i++){const d=new THREE.Mesh(new THREE.IcosahedronGeometry(.012+rnd()*.009,0),new THREE.MeshBasicMaterial({color:0xc7bca7,transparent:true,opacity:.25+rnd()*.4}));d.position.set((rnd()-.5)*7,(rnd()-.5)*5,(rnd()-.5)*3);dust.add(d)}
@@ -175,8 +170,8 @@ export function createJewelScene(canvas,options={}){
   detailMetal.color.copy(metal.color);detailMetal.roughness=metal.roughness;detailMetal.clearcoat=metal.clearcoat;detailMetal.opacity=1-ease(.30,.36,q);detailMetal.depthWrite=detailMetal.opacity>.98;
   if(pave.visible){pavePlacements.forEach(({position,rotation,size,normal},i)=>{dummy.position.copy(position).addScaledVector(normal,paveRelease*.18);dummy.quaternion.copy(rotation);dummy.scale.setScalar(Math.max(.0001,size*(1-paveRelease)));dummy.updateMatrix();paveStones.setMatrixAt(i,dummy.matrix);});paveStones.instanceMatrix.needsUpdate=true;paveStones.visible=paveRelease<.999;}
   const gemTurn=Math.min(q,.36),gemEuler=new THREE.Euler(.48+Math.sin(gemTurn*8)*.11+(inspect?spinX:0)+(motion?.x||0),-.45+gemTurn*18.5+(inspect?spinY:0)+(motion?.y||0),-.27+gemTurn*.7+(motion?.z||0));
-  diamond.position.copy(V(0,1.62+ease(.205,.34,gemTurn)*.85+(motion?.lift||0),0).applyEuler(gemEuler)).add(V(0,-ease(.2,.32,gemTurn)*.15+(motion?.float||0),0));
-  diamond.quaternion.setFromEuler(gemEuler);diamond.rotateY(gemTurn*5);
+  diamond.position.copy(V(0,1.62+ease(.205,.34,gemTurn)*.58+(motion?.lift||0),0).applyEuler(gemEuler)).add(V(0,-ease(.2,.32,gemTurn)*.15+(motion?.float||0),0));
+  diamond.quaternion.setFromEuler(gemEuler);diamond.rotateY(ease(.205,.34,gemTurn)*.65);
   if(q>.36)diamond.position.lerp(V(1.20,-1.02,.62),ease(.365,.49,q));
   diamond.scale.setScalar(stoneScale*(1-ease(.365,.425,q)));
   sprue.visible=rough>.005&&q<.46;sprue.scale.setScalar(Math.max(.001,rough));
@@ -198,9 +193,12 @@ export function createJewelScene(canvas,options={}){
    key.position.set(-3+lightX*6,5+lightY*3,5);rim.intensity=.8;
    brilliant.uniforms.lightDirection.value.set(lightX*1.8,.65+lightY*.8,1.3).normalize();brilliant.uniforms.lightStrength.value=view==='macro'?.7:.22;
   }
+  smoothMetal.visible=surfaceReady&&!(centered&&view==='macro');
+  if(surfaceReady){smoothMetal.morphTargetInfluences[0]=handoff;band.visible=false;basket.visible=false;}
+  cut.visible=!motion?.hideStone;
   camera.updateMatrixWorld();
   renderer.render(scene,camera);
  }
  resize();
- return {renderer,resize,render,ready:craft.ready,setPresentation(value){hero=value==='hero';centered=!hero;view='ring';resize(width,height)},containsPoint,setView(value){view=value},setLight(x,y=0){lightX=x;lightY=y},setInspect(v){inspect=v;spinX=0;spinY=0},rotate(dx,dy){spinY+=dx*.008;spinX=clamp(spinX+dy*.006,-.75,.75)},getHotspots(){world.updateMatrixWorld(true);return [[0,.22,0],[.46,.12,.15],[.61,0,0]].map(a=>{const point=cut.localToWorld(new THREE.Vector3(...a)).project(camera);return {x:(point.x+1)*width/2,y:(1-point.y)*height/2,visible:point.z<1&&Math.abs(point.x)<.95&&Math.abs(point.y)<.95}})},setDesign(value){finish=value.finish;stoneScale={delicate:.78,classic:1,bold:1.2}[value.stone]||1},dispose(){reflection.dispose();reflection.geometry.dispose();renderer.dispose();pmrem.dispose();}};
+ return {renderer,resize,render,ready:Promise.all([craft.ready,surfacePromise]),setPresentation(value){hero=value==='hero';centered=!hero;view='ring';resize(width,height)},containsPoint,setView(value){view=value},setLight(x,y=0){lightX=x;lightY=y},setInspect(v){inspect=v;spinX=0;spinY=0},rotate(dx,dy){spinY+=dx*.008;spinX=clamp(spinX+dy*.006,-.75,.75)},getHotspots(){world.updateMatrixWorld(true);return [[0,.22,0],[.46,.12,.15],[.61,0,0]].map(a=>{const point=cut.localToWorld(new THREE.Vector3(...a)).project(camera);return {x:(point.x+1)*width/2,y:(1-point.y)*height/2,visible:point.z<1&&Math.abs(point.x)<.95&&Math.abs(point.y)<.95}})},setDesign(value){finish=value.finish;stoneScale={delicate:.78,classic:1,bold:1.2}[value.stone]||1},dispose(){smoothMetal.geometry.dispose();reflection.dispose();reflection.geometry.dispose();renderer.dispose();pmrem.dispose();}};
 }

@@ -85,8 +85,8 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
  pipe(feedPoints.map(p=>p.clone().add(V(0,0,.057))),.0017,seamMaterialMould,partingSeam);
  // The basket is hollow: every claw has the same wax / cavity / metal stages.
  const prongPaths=[];
- for(let i=0;i<6;i++){
-  const a=i/6*Math.PI*2,c=Math.cos(a),s=Math.sin(a);
+ for(let i=0;i<4;i++){
+  const a=Math.PI/4+i/4*Math.PI*2,c=Math.cos(a),s=Math.sin(a);
   const points=[V(.04+c*.062,.225,.50+s*.062),V(.04+c*.115,.32,.50+s*.115),V(.04+c*.156,.435,.50+s*.156),V(.04+c*.143,.475,.50+s*.143)];
   prongPaths.push(points);pipe(points,.026,shellMaterial,mould);
   pipe(points.map(p=>p.clone().add(V(0,0,.026))),.0013,seamMaterialMould,partingSeam);
@@ -134,9 +134,9 @@ export function createCraftScenes({world,renderer,pmrem,gold,rawStone,sourceRing
    object.updateMorphTargets();transferMeshes.push(object);
   }
   const shank=sourceRing.band.geometry.clone(),positions=shank.attributes.position;
-  const {N,M}=sourceRing.band.geometry.userData.bandSegments;
+  const {N,M,start=0}=sourceRing.band.geometry.userData.bandSegments;
   for(let i=0;i<=N;i++)for(let j=0;j<=M;j++){
-   const a=i/N*Math.PI*2,b=j/M*Math.PI*2,r=1.12+Math.cos(b)*(.043/scale);
+   const a=start+i/N*Math.PI*2,b=j/M*Math.PI*2,r=1.12+Math.cos(b)*(.043/scale);
    positions.setXYZ(i*(M+1)+j,Math.cos(a)*r,Math.sin(a)*r-.2,Math.sin(b)*(.043/scale));
   }
   shank.computeVertexNormals();morphTo(sourceRing.band,shank);

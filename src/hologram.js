@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { refractionMaterial } from './diamond-material.js';
-import { diamondGeometry, createDiamondEnvironment } from './diamond.js';
+import { createDiamondEnvironment } from './diamond.js';
+import { cushionGeometry } from './reference-ring.js';
 import { createGemCaustics } from './gem-caustics.js';
 
 export function setupHologram(root,{reduced=false}={}){
@@ -14,7 +15,7 @@ export function setupHologram(root,{reduced=false}={}){
   try{
    renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:'low-power'});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.95;
    scene=new THREE.Scene();camera=new THREE.PerspectiveCamera(36,1,.1,40);camera.position.set(0,1.25,6.3);camera.lookAt(0,-.1,0);
-   const geometry=diamondGeometry();geometry.translate(0,.165,0);geometry.scale(1.55,1.55,1.55);
+   const geometry=cushionGeometry();geometry.translate(0,.165,0);geometry.scale(1.55,1.55,1.55);
    uniforms={uTime:{value:0},uScan:{value:0},uSpectrum:{value:0},uWire:{value:0},uReveal:{value:0}};
    const material=new THREE.ShaderMaterial({uniforms,transparent:true,depthWrite:false,side:THREE.DoubleSide,
     vertexShader:`varying vec3 vLocal;varying vec3 vWorld;varying vec3 vNormal;void main(){vLocal=position;vec4 world=modelMatrix*vec4(position,1.);vWorld=world.xyz;vNormal=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*world;}`,
@@ -34,9 +35,9 @@ export function setupHologram(root,{reduced=false}={}){
      #include <colorspace_fragment>
     }`});
    const cube=createDiamondEnvironment(renderer);
-   realMaterial=refractionMaterial(geometry,cube.texture);realMaterial.transparent=true;realMaterial.depthWrite=true;realMaterial.uniforms.lightStrength.value=.28;
+   realMaterial=refractionMaterial(geometry,cube.texture);realMaterial.transparent=true;realMaterial.depthWrite=true;realMaterial.uniforms.lightStrength.value=.28;realMaterial.uniforms.ior.value=1.76;realMaterial.uniforms.color.value.set('#c90059');realMaterial.uniforms.fresnel.value=.22;
    gem=new THREE.Group();scene.add(gem);realMesh=new THREE.Mesh(geometry,realMaterial);holoMesh=new THREE.Mesh(geometry,material);gem.add(realMesh,holoMesh);
-   caustics=createGemCaustics(scene,geometry,{reduced});
+   caustics=createGemCaustics(scene,geometry,{reduced,ior:1.76});
    edge=new THREE.LineSegments(new THREE.EdgesGeometry(geometry,1),new THREE.LineBasicMaterial({color:tint,transparent:true,opacity:.52}));gem.add(edge);
    points=new THREE.Points(geometry,new THREE.PointsMaterial({color:0xf7f3e7,size:.027,transparent:true,opacity:.52,sizeAttenuation:true}));gem.add(points);
    scaleDial=new THREE.Group();scaleDial.position.y=-1.35;scene.add(scaleDial);
@@ -80,7 +81,7 @@ export function setupHologram(root,{reduced=false}={}){
   uniforms.uSpectrum.value+=(Number(mode===2)-uniforms.uSpectrum.value)*damping;
   uniforms.uWire.value+=(Number(mode===1)-uniforms.uWire.value)*damping;
   reveal+=(revealTarget-reveal)*damping;uniforms.uReveal.value=reveal*(.06+uniforms.uWire.value*.86+uniforms.uSpectrum.value*.12);
-  camera.updateMatrixWorld();realMaterial.uniforms.viewMatrixInverse.value.copy(camera.matrixWorld);realMaterial.uniforms.projectionMatrixInverse.value.copy(camera.projectionMatrixInverse);realMaterial.uniforms.resolution.value.set(canvas.width,canvas.height);realMaterial.uniforms.opacity.value=1-uniforms.uWire.value*.78;realMesh.visible=true;holoMesh.visible=reveal>.005;scaleDial.visible=reveal>.01;edge.visible=points.visible=reveal>.005;realMaterial.uniforms.aberrationStrength.value=.018+uniforms.uSpectrum.value*.04;realMaterial.uniforms.lightDirection.value.set(pointer.x*.8-.4,1.1-pointer.y*.5,1.5).normalize();
+  camera.updateMatrixWorld();realMaterial.uniforms.viewMatrixInverse.value.copy(camera.matrixWorld);realMaterial.uniforms.projectionMatrixInverse.value.copy(camera.projectionMatrixInverse);realMaterial.uniforms.resolution.value.set(canvas.width,canvas.height);realMaterial.uniforms.opacity.value=1-uniforms.uWire.value*.78;realMesh.visible=true;holoMesh.visible=reveal>.005;scaleDial.visible=reveal>.01;edge.visible=points.visible=reveal>.005;realMaterial.uniforms.aberrationStrength.value=.004+uniforms.uSpectrum.value*.04;realMaterial.uniforms.lightDirection.value.set(pointer.x*.8-.4,1.1-pointer.y*.5,1.5).normalize();
   uniforms.uTime.value=phase;uniforms.uScan.value=reduced?.15:Math.sin(phase*.64)*1.18;
   edge.material.opacity=(.045+uniforms.uWire.value*.78)*reveal;points.material.opacity=(.045+uniforms.uWire.value*.48)*reveal;
   caustics.update(gem,camera,{time,delta,reveal,spectrum:uniforms.uSpectrum.value,wire:uniforms.uWire.value,interacting:drag!==null,pointerX:pointer.x,pointerY:pointer.y});

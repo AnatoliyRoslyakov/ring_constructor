@@ -26,7 +26,8 @@ export async function setupPromoSprites(canvas){
  return {render(){},resize(){}};
 }
 export async function setupStudio(canvas){
- const jewel=createJewelScene(canvas,{craft:true,craftFactory:createCraftScenes});await jewel.ready;
+ const review=new URLSearchParams(location.search).has('review');
+ const jewel=createJewelScene(canvas,review?{center:true,craft:true,review:true}:{craft:true,craftFactory:createCraftScenes});await jewel.ready;
  let rendering=false;const panel=document.querySelector('.studio-panel');panel.hidden=false;panel.querySelectorAll('button').forEach(b=>b.disabled=false);
  const params=new URLSearchParams(location.search);
  const firstFrame=Math.max(0,Math.min(FILM_LAST_FRAME,Number(params.get('from'))||0));
@@ -37,7 +38,18 @@ export async function setupStudio(canvas){
   const portrait=button.dataset.profile==='portrait',width=portrait?720:1600,height=portrait?1280:1000;
   const status=panel.querySelector('output'),progress=panel.querySelector('progress');
   try{
+   if(review){
+    jewel.resize(1200,1200,true);
+    const views=[{x:.12,y:.15},{x:1.08,y:.45},{x:-.48,y:2.02},{x:.40,y:.25,hideStone:true}];
+    for(let i=0;i<views.length;i++){
+     for(let warm=0;warm<3;warm++){jewel.render(0,0,{x:0,y:0},{...views[i],scale:1.20,offsetY:-.30});await new Promise(requestAnimationFrame);}
+     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.97));
+     const response=await fetch(`/__studio/frame/${String(910+i).padStart(4,'0')}`,{method:'POST',body:blob});if(!response.ok)throw new Error('Frame write failed');
+    }
+    status.textContent='Готово: четыре ракурса';return;
+   }
    jewel.resize(width,height,portrait?'portrait':true);jewel.setInspect(false);jewel.setDesign({finish:'mirror',stone:'classic'});
+   for(let warmup=0;warmup<3;warmup++){jewel.render(firstFrame/FILM_LAST_FRAME,firstFrame/FILM_FPS,{x:0,y:0});await new Promise(requestAnimationFrame);}
    for(let i=firstFrame;i<=lastFrame;i++){
     jewel.render(i/FILM_LAST_FRAME,i/FILM_FPS,{x:0,y:0});const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.96));
     if(!blob)throw new Error('Frame unavailable');const response=await fetch(`/__studio/frame/${String(i).padStart(4,'0')}?profile=${portrait?'portrait':'desktop'}`,{method:'POST',body:blob});if(!response.ok)throw new Error('Frame write failed');progress.value=i+1;status.textContent=`${i+1} / ${FILM_FRAMES} — ${portrait?'portrait':'desktop'}`;if(i%4===0)await new Promise(resolve=>setTimeout(resolve,0));
